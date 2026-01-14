@@ -4,6 +4,9 @@ A collection of ESPHome configurations for various smart home devices, with a fo
 
 ## Available Configurations
 
+### [Shelly 1 Mini Gen3](./shelly-1-mini-gen3/)
+ESPHome configuration for Shelly 1 Mini Gen3 smart relay with ESP32-C3. Features configurable overheating protection, manual Bluetooth proxy control, and flexible relay restore modes - all configurable via Home Assistant without reflashing.
+
 ### [ProBreeze Dehumidifier 20L (PB-D-24-WF)](./probreeze-dehumidifier/)
 ESPHome configuration for ProBreeze 20L PB-D-24-WF dehumidifier with Tuya MCU. Replace the original Tuya WBR3 WiFi board with an ESP32-C6 mini board for local control via Home Assistant.
 
