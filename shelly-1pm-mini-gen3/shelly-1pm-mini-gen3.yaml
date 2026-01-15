@@ -364,7 +364,7 @@ number:
     entity_category: config
     optimistic: true
     min_value: 500
-    max_value: 2500
+    max_value: 2000  # device spec: 8A/240V ≈ 2000W max
     step: 10
     initial_value: 2000
     unit_of_measurement: "W"
