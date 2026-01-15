@@ -19,9 +19,9 @@ Add a minimal device YAML in your ESPHome dashboard and pull the package directl
 Example (Shelly 1PM Mini Gen3):
 ```yaml
 substitutions:
-  device_name: shelly-1pm-mini-gen3
-  friendly_name: Shelly 1PM Mini Gen3
-  area: ""  # optional
+  device_name: shelly-1pm-mini-gen3_living-room
+  friendly_name: Shelly 1PM Mini Gen3 Living Room
+  area: "Living room"
 
 packages:
   remote_package:
