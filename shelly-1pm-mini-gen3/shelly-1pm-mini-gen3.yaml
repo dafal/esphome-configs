@@ -12,7 +12,7 @@
 substitutions:
   device_name: shelly-1pm-mini-gen3
   friendly_name: Shelly 1PM Mini Gen3
-  project_name: esphome.shelly_1pm_mini_gen3
+  project_name: dafal_esphome-configs.shelly_1pm_mini_gen3
   project_version: 1.0.0
   area: ""
 
