@@ -10,7 +10,7 @@
 # ===================================
 
 substitutions:
-  device_name: esphome
+  device_name: shelly-1pm-mini-gen3
   friendly_name: Shelly 1PM Mini Gen3
   project_name: dafal_esphome-configs.shelly_1pm_mini_gen3
   project_version: 1.0.0
@@ -23,7 +23,6 @@ substitutions:
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
-  name_add_mac_suffix: true
   project:
     name: ${project_name}
     version: ${project_version}
@@ -136,7 +135,7 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   ap:
-    ssid: "${device_name}"
+    ssid: "Shelly-FB"
     password: !secret fallback_password
   on_connect:
     - logger.log: "WiFi connected"
