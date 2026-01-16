@@ -87,7 +87,7 @@ esphome:
 
           // Schedule BLE scanner restore after preferences load
           auto saved_ble = id(ble_scan_mode).current_option();
-          ESP_LOGI("boot", "BLE restore scheduled: %s", saved_ble.c_str());
+          ESP_LOGI("boot", "BLE restore scheduled: %s", saved_ble);
       - delay: 1s
       - script.execute: restore_ble_mode
 
