@@ -76,16 +76,12 @@ esphome:
             }
           }
 
-          // Reset latches on boot
           id(overtemp_latched) = false;
-          id(overpower_latched) = false;
 
-          // If starting in Pulse Counter mode, publish current count once
           if (id(switch_mode).current_option() == "Pulse Counter") {
             id(pulse_counter_sensor).publish_state(id(pulse_counter));
           }
 
-          // Schedule BLE scanner restore after preferences load
           auto saved_ble = id(ble_scan_mode).current_option();
           ESP_LOGI("boot", "BLE restore scheduled: %s", saved_ble);
       - delay: 1s

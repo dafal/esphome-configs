@@ -35,18 +35,16 @@ esphome:
           bool last_state = id(relay_last_state);
           float temp = id(temperature).state;
           bool temp_ok = isnan(temp) || temp < (id(overheat_threshold).state - id(temp_hysteresis).state);
-          
+
           ESP_LOGI("boot", "Applying relay restore mode: %s", mode.c_str());
           ESP_LOGI("boot", "Last relay state: %s", last_state ? "ON" : "OFF");
           ESP_LOGI("boot", "Temperature: %.1f°C, OK: %s", temp, temp_ok ? "YES" : "NO");
-          
+
           if (mode == "Always OFF") {
-            // Force OFF regardless of temperature or last state
             ESP_LOGI("boot", "Mode: Always OFF - forcing relay OFF");
             id(relay).turn_off();
-            
+
           } else if (mode == "Always ON") {
-            // Force ON but check temperature safety
             if (temp_ok) {
               ESP_LOGI("boot", "Mode: Always ON - forcing relay ON (temp OK)");
               id(relay).turn_on();
@@ -54,9 +52,8 @@ esphome:
               ESP_LOGW("boot", "Mode: Always ON - but temperature too high, keeping OFF");
               id(relay).turn_off();
             }
-            
+
           } else if (mode == "Restore (default OFF)") {
-            // Restore last state, default to OFF if unknown
             if (last_state && temp_ok) {
               ESP_LOGI("boot", "Mode: Restore (default OFF) - restoring ON state (temp OK)");
               id(relay).turn_on();
@@ -64,9 +61,8 @@ esphome:
               ESP_LOGI("boot", "Mode: Restore (default OFF) - defaulting to OFF");
               id(relay).turn_off();
             }
-            
+
           } else if (mode == "Restore (default ON)") {
-            // Restore last state, default to ON if unknown (with temp check)
             if (!last_state) {
               ESP_LOGI("boot", "Mode: Restore (default ON) - last state was OFF, staying OFF");
               id(relay).turn_off();
@@ -78,16 +74,13 @@ esphome:
               id(relay).turn_off();
             }
           }
-          
-          // Reset overtemp latch on boot
+
           id(overtemp_latched) = false;
 
-          // If starting in Pulse Counter mode, publish current count once
           if (id(switch_mode).current_option() == "Pulse Counter") {
             id(pulse_counter_sensor).publish_state(id(pulse_counter));
           }
 
-          // Schedule BLE scanner restore after preferences load
           auto saved_ble = id(ble_scan_mode).current_option();
           ESP_LOGI("boot", "BLE restore scheduled: %s", saved_ble);
       - delay: 1s
