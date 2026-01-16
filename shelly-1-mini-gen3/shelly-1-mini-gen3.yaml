@@ -87,8 +87,12 @@ esphome:
             id(pulse_counter_sensor).publish_state(id(pulse_counter));
           }
 
-          // Ensure BLE scanner starts disabled by default
-          id(ble_mode_disabled).execute();
+          // Restore BLE scanner mode based on saved select
+          if (id(ble_scan_mode).current_option() == "Passive") {
+            id(ble_mode_passive).execute();
+          } else {
+            id(ble_mode_disabled).execute();
+          }
 
 esp32:
   variant: esp32c3
