@@ -85,12 +85,11 @@ esphome:
             id(pulse_counter_sensor).publish_state(id(pulse_counter));
           }
 
-          // Restore BLE scanner mode based on saved select
-          if (id(ble_scan_mode).current_option() == "Passive") {
-            id(ble_mode_passive).execute();
-          } else {
-            id(ble_mode_disabled).execute();
-          }
+          // Schedule BLE scanner restore after preferences load
+          auto saved_ble = id(ble_scan_mode).current_option();
+          ESP_LOGI("boot", "BLE restore scheduled: %s", saved_ble.c_str());
+      - delay: 1s
+      - script.execute: restore_ble_mode
 
 esp32:
   variant: esp32c3
@@ -466,6 +465,17 @@ script:
       - esp32_ble_tracker.start_scan:
           continuous: false
       - logger.log: "BLE scan passive"
+
+  - id: restore_ble_mode
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return id(ble_scan_mode).current_option() == "Passive";'
+          then:
+            - script.execute: ble_mode_passive
+          else:
+            - script.execute: ble_mode_disabled
 
 # ===================================
 # Output Control
