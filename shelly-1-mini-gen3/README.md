@@ -5,7 +5,13 @@ ESPHome configuration for the Shelly 1 Mini Gen3 (ESP32-C3).
 ## Hardware
 - MCU: ESP32-C3, 8MB flash, ESP-IDF
 - Connectivity: Wi‑Fi 2.4GHz, Bluetooth LE
-- GPIO: 0 status LED (inv), 1 button (inv/pullup), 3 NTC ADC (12 dB), 7 relay output, 10 physical switch
+
+## GPIO Map
+- GPIO0: Status LED (inverted)
+- GPIO1: Button (inverted, pullup)
+- GPIO3: NTC temperature (ADC 12 dB)
+- GPIO7: Relay output
+- GPIO10: Physical switch input
 
 ## Features
 - Relay restore modes: Restore (default OFF/ON), Always OFF/ON
