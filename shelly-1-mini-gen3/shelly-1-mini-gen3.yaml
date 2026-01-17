@@ -329,6 +329,7 @@ select:
       - "Follow"
       - "Detached"
       - "Multi-Click"
+      - "Smart Multi-Click"
       - "Pulse Counter"
     initial_option: "Edge (Toggle)"
     restore_value: true
@@ -484,8 +485,8 @@ binary_sensor:
             std::string mode = id(switch_mode).current_option();
             ESP_LOGI("switch", "Press detected, mode: %s", mode.c_str());
             
-            // Skip here when in Multi-Click; handled by on_multi_click patterns
-            if (mode == "Multi-Click") {
+            // Skip here when in Multi-Click or Smart Multi-Click; handled by on_multi_click patterns
+            if (mode == "Multi-Click" || mode == "Smart Multi-Click") {
               ESP_LOGD("switch", "Multi-click mode: handled by on_multi_click");
               return;
             }
@@ -515,8 +516,8 @@ binary_sensor:
             std::string mode = id(switch_mode).current_option();
             ESP_LOGI("switch", "Release detected, mode: %s", mode.c_str());
             
-            // Skip here when in Multi-Click; handled by on_multi_click patterns
-            if (mode == "Multi-Click") {
+            // Skip here when in Multi-Click or Smart Multi-Click; handled by on_multi_click patterns
+            if (mode == "Multi-Click" || mode == "Smart Multi-Click") {
               ESP_LOGD("switch", "Multi-click mode: handled by on_multi_click");
               return;
             }
@@ -553,10 +554,14 @@ binary_sensor:
         then:
           - if:
               condition:
-                lambda: 'return id(switch_mode).current_option() == "Multi-Click";'
+                lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 1 click");
+                    // In Smart Multi-Click, toggle relay on single click
+                    if (id(switch_mode).current_option() == "Smart Multi-Click") {
+                      id(relay).toggle();
+                    }
                 - event.trigger:
                     id: switch_single_click
                     event_type: single_click
@@ -578,7 +583,7 @@ binary_sensor:
         then:
           - if:
               condition:
-                lambda: 'return id(switch_mode).current_option() == "Multi-Click";'
+                lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 2 clicks");
@@ -609,7 +614,7 @@ binary_sensor:
         then:
           - if:
               condition:
-                lambda: 'return id(switch_mode).current_option() == "Multi-Click";'
+                lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 3 clicks");
@@ -626,7 +631,7 @@ binary_sensor:
         then:
           - if:
               condition:
-                lambda: 'return id(switch_mode).current_option() == "Multi-Click";'
+                lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: Long press");
