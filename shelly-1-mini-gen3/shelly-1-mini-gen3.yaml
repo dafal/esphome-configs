@@ -387,8 +387,8 @@ script:
     then:
       - esp32_ble_tracker.stop_scan:
       - esp32_ble_tracker.start_scan:
-          continuous: false
-      - logger.log: "BLE scan passive"
+          continuous: true
+      - logger.log: "BLE scan passive (continuous)"
 
   - id: restore_ble_mode
     mode: restart
