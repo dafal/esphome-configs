@@ -1,30 +1,35 @@
 # Shelly 1PM Mini Gen3
 
-ESPHome configuration for the Shelly 1PM Mini Gen3 (ESP32-C3) with power metering and protections.
+ESPHome configuration for the Shelly 1PM Mini Gen3 (ESP32-C3) with metering and protections.
 
-## GPIO Map
-- GPIO0: Status LED (inverted)
-- GPIO1: Button (input, pullup)
-- GPIO3: NTC temperature (ADC 12 dB)
-- GPIO5: Relay output
-- GPIO6: BL0942 TX
-- GPIO7: BL0942 RX (pullup)
-- GPIO10: Physical switch input
+## Hardware
+- MCU: ESP32-C3, 8MB flash, ESP-IDF
+- Connectivity: Wi‑Fi 2.4GHz, Bluetooth LE
+- GPIO: 0 status LED (inv), 1 button (inv/pullup), 3 NTC ADC (12 dB), 5 relay output, 6 BL0942 TX, 7 BL0942 RX (pullup), 10 physical switch
 
 ## Features
-- Relay with 4 restore modes (Restore default OFF/ON, Always OFF/ON)
-- Switch modes: Edge, Follow, Detached, Multi-Click, Pulse Counter
-- Multi-Click: 1/2/3 clicks, long press (timings ~1s press, gaps ~0.8s, final release ~0.3s)
-- Pulse Counter: counts press+release cycles; publishes only in Pulse mode/boot/reset
-- Power metering (BL0942): voltage, current, power, energy, frequency
-- Protections: overheating (configurable threshold/hysteresis), overpower trip at configurable power limit (default 2000 W, with latch and auto-clear at 90%)
-- BLE proxy enabled; scanner select (Disabled by default, Passive available), passive scan only
-- Status: WiFi signal, uptime, switch state in Detached
+- Relay restore modes: Restore (default OFF/ON), Always OFF/ON
+- Switch modes: Edge (Toggle), Follow, Detached, Multi-Click, **Smart Multi-Click**, Pulse Counter
+- Multi-Click & Smart Multi-Click events: single / double / triple / long; in Smart Multi-Click, single click also toggles the relay (events still fire)
+- Pulse Counter: counts press+release cycles; persistent; reset button in HA
+- Power metering (BL0942): voltage, current, power, energy, frequency; overpower protection (default 2000 W, latch with auto-clear at 90%)
+- Overheat protection with configurable threshold & hysteresis; NTC moving average filter
+- BLE proxy active; scanner modes (Disabled default, Passive continuous). Scanner mode restored after 1s on boot
+- Wi‑Fi AP fallback SSID: `esphome`; mDNS enabled; static device names (no MAC suffix)
+- Diagnostics: Wi‑Fi signal, uptime, overheating/overpower status, switch state (Detached), web server v3 on port 80
+- Flash write interval: 5 minutes; Logger: DEBUG @ 115200
 
-## BLE Behavior
-- Scanner modes: Disabled (default), Passive. Runtime active scan toggle is not supported.
+## Multi-Click timing (unchanged)
+- Press ≤ ~1.0s; gaps ≤ ~0.8s; final release ≥ ~0.3s; long press ≥ ~0.8s
 
-## Notes
-- Logging: DEBUG, baud 115200
-- Web server v3 on port 80
-- Flash write interval 5 minutes to reduce wear
+## Secrets
+Requires entries in `secrets.yaml`:
+- `wifi_ssid`, `wifi_password`
+- `api_encryption_key`
+- `ota_password`
+- `fallback_password`
+
+## Recent changes
+- Added **Smart Multi-Click** (single click toggles relay; all click events still emitted)
+- BLE Passive scan made continuous and restored after boot
+- Removed MAC suffix from names; fallback AP SSID set to `esphome`; mDNS explicitly enabled
