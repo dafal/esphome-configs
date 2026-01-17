@@ -22,13 +22,6 @@ ESPHome configuration for the Shelly 1PM Mini Gen3 (ESP32-C3) with metering and 
 ## Multi-Click timing (unchanged)
 - Press ≤ ~1.0s; gaps ≤ ~0.8s; final release ≥ ~0.3s; long press ≥ ~0.8s
 
-## Secrets
-Requires entries in `secrets.yaml`:
-- `wifi_ssid`, `wifi_password`
-- `api_encryption_key`
-- `ota_password`
-- `fallback_password`
-
 ## Recent changes
 - Added **Smart Multi-Click** (single click toggles relay; all click events still emitted)
 - BLE Passive scan made continuous and restored after boot
