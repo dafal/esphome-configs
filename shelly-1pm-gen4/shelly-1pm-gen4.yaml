@@ -16,6 +16,9 @@ substitutions:
   project_name: dafal_esphome-configs.shelly_1pm_gen4
   project_version: 1.1.0
   area: ""
+  # BL0942 calibration references
+  current_reference: "251213.46469622"
+  voltage_reference: "15873.35944299"
 
 # ===================================
 # Device & Platform Configuration
@@ -258,6 +261,8 @@ sensor:
   - platform: bl0942
     uart_id: bl0942_uart
     line_frequency: 50Hz  # Set to 50Hz for Europe/Asia, 60Hz for North America
+    current_reference: ${current_reference}
+    voltage_reference: ${voltage_reference}
     voltage:
       name: "Voltage"
       id: bvoltage
