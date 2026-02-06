@@ -30,6 +30,8 @@ esphome:
     priority: -100  # Run after all components initialized
     then:
       - lambda: |-
+          id(allow_click_events) = false;
+      - lambda: |-
           // Apply relay restore mode on boot with full logic
           std::string mode = id(relay_restore_mode).current_option();
           bool last_state = id(relay_last_state);
@@ -85,6 +87,9 @@ esphome:
           ESP_LOGI("boot", "BLE restore scheduled: %s", saved_ble);
       - delay: 1s
       - script.execute: restore_ble_mode
+      - delay: 2s
+      - lambda: |-
+          id(allow_click_events) = true;
 
 esp32:
   variant: esp32c3
@@ -107,6 +112,10 @@ globals:
   - id: relay_last_state
     type: bool
     restore_value: true
+    initial_value: 'false'
+  - id: allow_click_events
+    type: bool
+    restore_value: false
     initial_value: 'false'
   - id: overtemp_latched
     type: bool
@@ -151,6 +160,12 @@ api:
   reboot_timeout: 0s
   encryption:
     key: !secret api_encryption_key
+  on_client_connected:
+    - lambda: |-
+        id(allow_click_events) = false;
+    - delay: 1s
+    - lambda: |-
+        id(allow_click_events) = true;
 
 ota:
   - platform: esphome
@@ -554,7 +569,9 @@ binary_sensor:
         then:
           - if:
               condition:
-                lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
+                and:
+                  - lambda: 'return id(allow_click_events);'
+                  - lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 1 click");
@@ -583,7 +600,9 @@ binary_sensor:
         then:
           - if:
               condition:
-                lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
+                and:
+                  - lambda: 'return id(allow_click_events);'
+                  - lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 2 clicks");
@@ -614,7 +633,9 @@ binary_sensor:
         then:
           - if:
               condition:
-                lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
+                and:
+                  - lambda: 'return id(allow_click_events);'
+                  - lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 3 clicks");
@@ -631,7 +652,9 @@ binary_sensor:
         then:
           - if:
               condition:
-                lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
+                and:
+                  - lambda: 'return id(allow_click_events);'
+                  - lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: Long press");
