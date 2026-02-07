@@ -566,7 +566,9 @@ binary_sensor:
                     event: esphome.shelly_1_mini_gen3_click
                     data:
                       device: ${device_name}
+                      friendly_name: ${friendly_name}
                       click_type: single
+                      message: "Single click detected"
         invalid_cooldown: 0.5s
 
       # Double click
@@ -593,7 +595,9 @@ binary_sensor:
                     event: esphome.shelly_1_mini_gen3_click
                     data:
                       device: ${device_name}
+                      friendly_name: ${friendly_name}
                       click_type: double
+                      message: "Double click detected"
         invalid_cooldown: 0.5s
 
       # Triple click
@@ -626,7 +630,9 @@ binary_sensor:
                     event: esphome.shelly_1_mini_gen3_click
                     data:
                       device: ${device_name}
+                      friendly_name: ${friendly_name}
                       click_type: triple
+                      message: "Triple click detected"
         invalid_cooldown: 0.5s
 
       # Long press
@@ -645,7 +651,9 @@ binary_sensor:
                     event: esphome.shelly_1_mini_gen3_click
                     data:
                       device: ${device_name}
+                      friendly_name: ${friendly_name}
                       click_type: long_press
+                      message: "Long press detected"
         invalid_cooldown: 0.5s
 
   # Physical button input (GPIO 1)
