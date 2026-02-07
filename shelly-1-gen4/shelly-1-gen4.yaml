@@ -1,0 +1,728 @@
+# ===================================
+# Shelly 1 Gen4 Configuration
+# ===================================
+# Enhanced ESPHome configuration with:
+# - Configurable overheating protection with hysteresis
+# - Configurable relay restore mode
+# - Manual Bluetooth proxy control
+# - Comprehensive monitoring and diagnostics
+# ===================================
+
+substitutions:
+  device_name: shelly-1-gen4
+  friendly_name: Shelly 1 Gen4
+  project_name: dafal_esphome-configs.shelly_1_gen4
+  project_version: 1.2.0
+  area: ""
+
+# ===================================
+# Device & Platform Configuration
+# ===================================
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  project:
+    name: ${project_name}
+    version: ${project_version}
+  area: ${area}
+  on_boot:
+    priority: -100  # Run after all components initialized
+    then:
+      - lambda: |-
+          // Apply relay restore mode on boot with full logic
+          std::string mode = id(relay_restore_mode).current_option();
+          bool last_state = id(relay_last_state);
+          float temp = id(temperature).state;
+          bool temp_ok = isnan(temp) || temp < (id(overheat_threshold).state - id(temp_hysteresis).state);
+
+          ESP_LOGI("boot", "Applying relay restore mode: %s", mode.c_str());
+          ESP_LOGI("boot", "Last relay state: %s", last_state ? "ON" : "OFF");
+          ESP_LOGI("boot", "Temperature: %.1f°C, OK: %s", temp, temp_ok ? "YES" : "NO");
+
+          if (mode == "Always OFF") {
+            ESP_LOGI("boot", "Mode: Always OFF - forcing relay OFF");
+            id(relay).turn_off();
+
+          } else if (mode == "Always ON") {
+            if (temp_ok) {
+              ESP_LOGI("boot", "Mode: Always ON - forcing relay ON (temp OK)");
+              id(relay).turn_on();
+            } else {
+              ESP_LOGW("boot", "Mode: Always ON - but temperature too high, keeping OFF");
+              id(relay).turn_off();
+            }
+
+          } else if (mode == "Restore (default OFF)") {
+            if (last_state && temp_ok) {
+              ESP_LOGI("boot", "Mode: Restore (default OFF) - restoring ON state (temp OK)");
+              id(relay).turn_on();
+            } else {
+              ESP_LOGI("boot", "Mode: Restore (default OFF) - defaulting to OFF");
+              id(relay).turn_off();
+            }
+
+          } else if (mode == "Restore (default ON)") {
+            if (!last_state) {
+              ESP_LOGI("boot", "Mode: Restore (default ON) - last state was OFF, staying OFF");
+              id(relay).turn_off();
+            } else if (temp_ok) {
+              ESP_LOGI("boot", "Mode: Restore (default ON) - restoring ON state (temp OK)");
+              id(relay).turn_on();
+            } else {
+              ESP_LOGW("boot", "Mode: Restore (default ON) - temperature too high, keeping OFF");
+              id(relay).turn_off();
+            }
+          }
+
+          id(overtemp_latched) = false;
+
+          if (id(switch_mode).current_option() == "Pulse Counter") {
+            id(pulse_counter_sensor).publish_state(id(pulse_counter));
+          }
+
+          auto saved_ble = id(ble_scan_mode).current_option();
+          ESP_LOGI("boot", "BLE restore scheduled: %s", saved_ble);
+      - delay: 1s
+      - script.execute: restore_ble_mode
+
+esp32:
+  board: esp32-c6-devkitc-1
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      COMPILER_OPTIMIZATION_SIZE: y
+
+# Improve stability on ESP32-C6
+preferences:
+  flash_write_interval: 5min
+
+# ===================================
+# Global Variables
+# ===================================
+
+globals:
+  - id: relay_last_state
+    type: bool
+    restore_value: true
+    initial_value: 'false'
+  - id: overtemp_latched
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: pulse_counter
+    type: int
+    restore_value: true
+    initial_value: '0'
+  - id: pulse_cycle_started
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+
+# ===================================
+# Network Configuration
+# ===================================
+
+
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "esphome"
+    password: !secret fallback_password
+  on_connect:
+    - logger.log: "WiFi connected"
+  on_disconnect:
+    - logger.log: "WiFi disconnected"
+
+captive_portal:
+
+mdns:
+  disabled: false
+
+# ===================================
+# Home Assistant Integration
+# ===================================
+
+api:
+  reboot_timeout: 0s
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# ===================================
+# Web Interface
+# ===================================
+
+web_server:
+  port: 80
+  version: 3
+  log: true
+
+# ===================================
+# Bluetooth Proxy (Manual Control)
+# ===================================
+
+esp32_ble_tracker:
+  id: ble_tracker
+  scan_parameters:
+    continuous: false
+    active: false
+  on_ble_advertise:
+    - lambda: |-
+        static uint32_t last = 0;
+        const uint32_t now = millis();
+        if (now - last < 5000) return;
+        if (x.get_rssi() > -90) {
+          ESP_LOGD("ble_adv", "BLE adv %s RSSI %d", x.address_str().c_str(), x.get_rssi());
+          last = now;
+        }
+
+bluetooth_proxy:
+  active: true
+
+# ===================================
+# Logging & Status
+# ===================================
+
+logger:
+  level: DEBUG
+  baud_rate: 115200
+
+status_led:
+  pin:
+    number: GPIO0
+    inverted: true
+
+# ===================================
+# Sensors
+# ===================================
+
+sensor:
+  # Temperature monitoring with NTC sensor
+  - id: temperature
+    name: "Temperature"
+    platform: ntc
+    sensor: temperature_sensor_resistance
+    icon: "mdi:thermometer"
+    entity_category: diagnostic
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    calibration:
+      b_constant: 3350
+      reference_resistance: 10kOhm
+      reference_temperature: 25°C
+    filters:
+      # Moving average filter to smooth readings
+      - sliding_window_moving_average:
+          window_size: 5
+          send_every: 5
+      # Ensure regular updates to Home Assistant
+      - heartbeat: 60s
+
+  - id: temperature_sensor_resistance
+    platform: resistance
+    sensor: temperature_sensor_voltage
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+
+  - id: temperature_sensor_voltage
+    platform: adc
+    pin: GPIO3
+    attenuation: 11db
+    update_interval: 10s
+
+  # WiFi signal strength monitoring
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    icon: "mdi:wifi"
+    update_interval: 60s
+    entity_category: diagnostic
+
+  # Device uptime tracking
+  - platform: uptime
+    name: "Uptime"
+    icon: "mdi:clock-outline"
+    entity_category: diagnostic
+    update_interval: 60s
+
+  # Pulse counter sensor
+  - platform: template
+    name: "Pulse Counter"
+    id: pulse_counter_sensor
+    icon: "mdi:counter"
+    accuracy_decimals: 0
+    unit_of_measurement: "pulses"
+    state_class: "total_increasing"
+    lambda: |-
+      return id(pulse_counter);
+    update_interval: never
+
+# ===================================
+# Configuration Numbers
+# ===================================
+
+number:
+  # Configurable overheating threshold
+  - platform: template
+    name: "Overheating Threshold"
+    id: overheat_threshold
+    icon: "mdi:thermometer-alert"
+    entity_category: config
+    optimistic: true
+    min_value: 60
+    max_value: 90
+    step: 1
+    initial_value: 75
+    unit_of_measurement: "°C"
+    restore_value: true
+
+  # Configurable temperature hysteresis
+  - platform: template
+    name: "Temperature Hysteresis"
+    id: temp_hysteresis
+    icon: "mdi:thermometer-lines"
+    entity_category: config
+    optimistic: true
+    min_value: 1
+    max_value: 10
+    step: 1
+    initial_value: 5
+    unit_of_measurement: "°C"
+    restore_value: true
+
+# ===================================
+# Configuration Selects
+# ===================================
+
+select:
+  # Relay restore mode selection
+  - platform: template
+    name: "Relay Restore Mode"
+    id: relay_restore_mode
+    icon: "mdi:restore"
+    entity_category: config
+    optimistic: true
+    options:
+      - "Restore (default OFF)"
+      - "Restore (default ON)"
+      - "Always OFF"
+      - "Always ON"
+    initial_option: "Restore (default OFF)"
+    restore_value: true
+
+  # Switch mode selection
+  - platform: template
+    name: "Switch Mode"
+    id: switch_mode
+    icon: "mdi:toggle-switch-variant"
+    entity_category: config
+    optimistic: true
+    options:
+      - "Edge (Toggle)"
+      - "Follow"
+      - "Detached"
+      - "Multi-Click"
+      - "Smart Multi-Click"
+      - "Pulse Counter"
+    initial_option: "Edge (Toggle)"
+    restore_value: true
+    on_value:
+      then:
+        - logger.log:
+            format: "Switch mode changed to: %s"
+            args: ['x.c_str()']
+        - if:
+            condition:
+              lambda: 'return x == "Pulse Counter";'
+            then:
+              - lambda: 'id(pulse_counter_sensor).publish_state(id(pulse_counter));'
+
+  # Bluetooth scanner mode selection
+  - platform: template
+    name: "Bluetooth Scanner Mode"
+    id: ble_scan_mode
+    icon: "mdi:bluetooth"
+    entity_category: config
+    optimistic: true
+    options:
+      - "Disabled"
+      - "Passive"
+    initial_option: "Disabled"
+    restore_value: true
+    on_value:
+      then:
+        - logger.log:
+            format: "BLE scan mode changed to: %s"
+            args: ['x.c_str()']
+        - if:
+            condition:
+              lambda: 'return x == "Disabled";'
+            then:
+              - script.execute: ble_mode_disabled
+        - if:
+            condition:
+              lambda: 'return x == "Passive";'
+            then:
+              - script.execute: ble_mode_passive
+
+# ===================================
+# BLE Scan Mode Scripts
+# ===================================
+
+script:
+  - id: ble_mode_disabled
+    mode: restart
+    then:
+      - esp32_ble_tracker.stop_scan:
+      - logger.log: "BLE scan disabled"
+
+  - id: ble_mode_passive
+    mode: restart
+    then:
+      - esp32_ble_tracker.stop_scan:
+      - esp32_ble_tracker.start_scan:
+          continuous: true
+      - logger.log: "BLE scan passive (continuous)"
+
+  - id: restore_ble_mode
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return id(ble_scan_mode).current_option() == "Passive";'
+          then:
+            - script.execute: ble_mode_passive
+          else:
+            - script.execute: ble_mode_disabled
+
+# ===================================
+# Output Control
+# ===================================
+
+output:
+  - platform: gpio
+    id: relay_output
+    pin: GPIO5
+
+# ===================================
+# Switches
+# ===================================
+
+switch:
+  # Main relay with overheating protection
+  - platform: template
+    id: relay
+    name: "Relay"
+    device_class: outlet
+    restore_mode: RESTORE_DEFAULT_OFF
+    lambda: |-
+      // Return current relay output state (tracked via global)
+      return id(relay_last_state);
+    turn_on_action:
+      - if:
+          condition:
+            or:
+              # Allow if temperature is below (threshold - hysteresis)
+              - lambda: |-
+                  return id(temperature).state < (id(overheat_threshold).state - id(temp_hysteresis).state);
+              # Allow if temperature sensor is unknown (boot scenario)
+              - and:
+                  - lambda: "return isnan(id(temperature).state);"
+                  - binary_sensor.is_off: error_overtemp
+          then:
+            - output.turn_on: relay_output
+            - binary_sensor.template.publish:
+                id: error_overtemp
+                state: OFF
+            - switch.template.publish:
+                id: relay
+                state: ON
+            - lambda: |-
+                // Store relay state for restore mode
+                id(relay_last_state) = true;
+                // Reset overtemp latch when successfully turning ON
+                id(overtemp_latched) = false;
+            - logger.log: "Relay turned ON"
+          else:
+            - logger.log: "Relay turn-on rejected: Temperature still too high"
+            - switch.template.publish:
+                id: relay
+                state: OFF
+    turn_off_action:
+      - output.turn_off: relay_output
+      - switch.template.publish:
+          id: relay
+          state: OFF
+      - lambda: |-
+          // Store relay state for restore mode
+          id(relay_last_state) = false;
+      - logger.log: "Relay turned OFF"
+
+# ===================================
+# Physical Inputs
+# ===================================
+
+binary_sensor:
+  # Physical switch input (GPIO 10) - Enhanced with multiple modes
+  - platform: gpio
+    name: "Switch"
+    id: physical_switch
+    pin: GPIO10
+    filters:
+      - delayed_on_off: 50ms
+    
+    # ON PRESS - Handle all switch modes
+    on_press:
+      then:
+        - lambda: |-
+            std::string mode = id(switch_mode).current_option();
+            ESP_LOGI("switch", "Press detected, mode: %s", mode.c_str());
+            
+            // Skip here when in Multi-Click or Smart Multi-Click; handled by on_multi_click patterns
+            if (mode == "Multi-Click" || mode == "Smart Multi-Click") {
+              ESP_LOGD("switch", "Multi-click mode: handled by on_multi_click");
+              return;
+            }
+            
+            // Pulse Counter mode: Start counting cycle
+            if (mode == "Pulse Counter") {
+              id(pulse_cycle_started) = true;
+              ESP_LOGI("pulse", "Pulse cycle started (press)");
+              
+            } else if (mode == "Edge (Toggle)") {
+              // Toggle relay on each press
+              id(relay).toggle();
+              
+            } else if (mode == "Follow") {
+              // Relay follows switch state - turn ON
+              id(relay).turn_on();
+              
+            } else if (mode == "Detached") {
+              // Relay independent - just log
+              ESP_LOGI("switch", "Detached mode: press event");
+            }
+    
+    # ON RELEASE - Handle modes that need release action
+    on_release:
+      then:
+        - lambda: |-
+            std::string mode = id(switch_mode).current_option();
+            ESP_LOGI("switch", "Release detected, mode: %s", mode.c_str());
+            
+            // Skip here when in Multi-Click or Smart Multi-Click; handled by on_multi_click patterns
+            if (mode == "Multi-Click" || mode == "Smart Multi-Click") {
+              ESP_LOGD("switch", "Multi-click mode: handled by on_multi_click");
+              return;
+            }
+            
+            // Pulse Counter mode: Complete cycle and count
+            if (mode == "Pulse Counter") {
+              if (id(pulse_cycle_started)) {
+                id(pulse_counter) += 1;
+                id(pulse_cycle_started) = false;
+                ESP_LOGI("pulse", "Pulse counted! Total: %d", id(pulse_counter));
+                id(pulse_counter_sensor).publish_state(id(pulse_counter));
+              } else {
+                ESP_LOGW("pulse", "Release without press - skipping count");
+              }
+              
+            } else if (mode == "Follow") {
+              // Relay follows switch state - turn OFF
+              id(relay).turn_off();
+              
+            } else if (mode == "Detached") {
+              // Just log
+              ESP_LOGI("switch", "Detached mode: release event");
+            }
+
+    # MULTI-CLICK DETECTION (native)
+    on_multi_click:
+      # Single click
+      - timing:
+          - state: true
+            min_length: 40ms
+            max_length: 1s
+          - state: false
+            min_length: 300ms
+        then:
+          - if:
+              condition:
+                lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
+              then:
+                - lambda: |-
+                    ESP_LOGI("multi", "Multi-click: 1 click");
+                    // In Smart Multi-Click, toggle relay on single click
+                    if (id(switch_mode).current_option() == "Smart Multi-Click") {
+                      id(relay).toggle();
+                    }
+                - homeassistant.event:
+                    event: esphome.button_click
+                    data:
+                      device: ${device_name}
+                      friendly_name: ${friendly_name}
+                      click_type: single
+                      message: "Single click detected"
+        invalid_cooldown: 0.5s
+
+      # Double click
+      - timing:
+          - state: true
+            min_length: 40ms
+            max_length: 1s
+          - state: false
+            min_length: 40ms
+            max_length: 800ms
+          - state: true
+            min_length: 40ms
+            max_length: 1s
+          - state: false
+            min_length: 300ms
+        then:
+          - if:
+              condition:
+                lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
+              then:
+                - lambda: |-
+                    ESP_LOGI("multi", "Multi-click: 2 clicks");
+                - homeassistant.event:
+                    event: esphome.button_click
+                    data:
+                      device: ${device_name}
+                      friendly_name: ${friendly_name}
+                      click_type: double
+                      message: "Double click detected"
+        invalid_cooldown: 0.5s
+
+      # Triple click
+      - timing:
+          - state: true
+            min_length: 40ms
+            max_length: 1s
+          - state: false
+            min_length: 40ms
+            max_length: 800ms
+          - state: true
+            min_length: 40ms
+            max_length: 1s
+          - state: false
+            min_length: 40ms
+            max_length: 800ms
+          - state: true
+            min_length: 40ms
+            max_length: 1s
+          - state: false
+            min_length: 300ms
+        then:
+          - if:
+              condition:
+                lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
+              then:
+                - lambda: |-
+                    ESP_LOGI("multi", "Multi-click: 3 clicks");
+                - homeassistant.event:
+                    event: esphome.button_click
+                    data:
+                      device: ${device_name}
+                      friendly_name: ${friendly_name}
+                      click_type: triple
+                      message: "Triple click detected"
+        invalid_cooldown: 0.5s
+
+      # Long press
+      - timing:
+          - state: true
+            min_length: 800ms
+            max_length: 5s
+        then:
+          - if:
+              condition:
+                lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
+              then:
+                - lambda: |-
+                    ESP_LOGI("multi", "Multi-click: Long press");
+                - homeassistant.event:
+                    event: esphome.button_click
+                    data:
+                      device: ${device_name}
+                      friendly_name: ${friendly_name}
+                      click_type: long_press
+                      message: "Long press detected"
+        invalid_cooldown: 0.5s
+
+  # Physical button input (GPIO 1)
+
+  - platform: gpio
+    name: "Button"
+    pin:
+      number: GPIO1
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    filters:
+      - delayed_on_off: 50ms
+
+
+  # Overheating status indicator
+  - id: error_overtemp
+    name: "Overheating"
+    device_class: problem
+    entity_category: diagnostic
+    platform: template
+    lambda: |-
+      // Use global for latch state instead of self-reference
+      // Check if already latched OR temperature exceeds threshold
+      if (id(temperature).state >= id(overheat_threshold).state) {
+        id(overtemp_latched) = true;
+      }
+      return id(overtemp_latched);
+    on_press:
+      then:
+        - logger.log: "OVERHEATING DETECTED! Turning off relay"
+        - switch.turn_off: relay
+    on_release:
+      then:
+        - logger.log: "Temperature back to normal; latch cleared"
+
+  # Switch state sensor - For Detached mode
+  - platform: template
+    name: "Switch State"
+    id: switch_state_sensor
+    lambda: |-
+      // Only publish in Detached mode
+      if (id(switch_mode).current_option() == "Detached") {
+        return id(physical_switch).state;
+      }
+      // Return false (not publishing) when not in Detached mode
+      return false;
+    icon: "mdi:light-switch"
+
+# ===================================
+# Diagnostic Controls
+# ===================================
+
+button:
+  # Remote restart capability
+  - platform: restart
+    name: "Restart"
+    icon: "mdi:restart"
+    entity_category: diagnostic
+
+  # Reset pulse counter
+  - platform: template
+    name: "Reset Pulse Counter"
+    icon: "mdi:counter"
+    entity_category: config
+    on_press:
+      then:
+        - lambda: |-
+            id(pulse_counter) = 0;
+            id(pulse_cycle_started) = false;
+            id(pulse_counter_sensor).publish_state(0);
+        - logger.log: "Pulse counter reset to 0"

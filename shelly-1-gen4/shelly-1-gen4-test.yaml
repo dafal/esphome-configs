@@ -1,0 +1,175 @@
+# ===================================
+# Shelly 1 Gen4 - GPIO TEST Configuration
+# ===================================
+# Minimal config to test relay GPIO candidates
+# Test each GPIO switch to find which one controls the relay
+# ===================================
+
+substitutions:
+  device_name: shelly-1-gen4-test
+  friendly_name: Shelly 1 Gen4 Test
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32-c6-devkitc-1
+  framework:
+    type: esp-idf
+    version: recommended
+
+# ===================================
+# Network Configuration
+# ===================================
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "shelly-test"
+    password: !secret fallback_password
+
+captive_portal:
+
+api:
+  reboot_timeout: 0s
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+web_server:
+  port: 80
+
+logger:
+  level: DEBUG
+
+# ===================================
+# GPIO TEST OUTPUTS
+# ===================================
+# Turn each switch ON one at a time to find which controls the relay
+
+switch:
+  # TEST 1: GPIO4 (used by 1PM Gen4 for relay)
+  - platform: gpio
+    name: "Test GPIO4"
+    id: test_gpio4
+    pin: GPIO4
+    icon: "mdi:numeric-4-box"
+    restore_mode: ALWAYS_OFF
+
+  # TEST 2: GPIO5 (used by 1PM Mini Gen3 for relay)
+  - platform: gpio
+    name: "Test GPIO5"
+    id: test_gpio5
+    pin: GPIO5
+    icon: "mdi:numeric-5-box"
+    restore_mode: ALWAYS_OFF
+
+  # TEST 3: GPIO7 (used by 1 Mini Gen3 for relay - current guess)
+  - platform: gpio
+    name: "Test GPIO7"
+    id: test_gpio7
+    pin: GPIO7
+    icon: "mdi:numeric-7-box"
+    restore_mode: ALWAYS_OFF
+
+  # TEST 4: GPIO8 (possibly available)
+  - platform: gpio
+    name: "Test GPIO8"
+    id: test_gpio8
+    pin: GPIO8
+    icon: "mdi:numeric-8-box"
+    restore_mode: ALWAYS_OFF
+
+  # TEST 5: GPIO9 (possibly available)
+  - platform: gpio
+    name: "Test GPIO9"
+    id: test_gpio9
+    pin: GPIO9
+    icon: "mdi:numeric-9-box"
+    restore_mode: ALWAYS_OFF
+
+# ===================================
+# CONFIRMED WORKING INPUTS
+# ===================================
+
+binary_sensor:
+  # Physical switch - GPIO10 (confirmed from 1PM Gen4)
+  - platform: gpio
+    name: "Physical Switch"
+    pin: GPIO10
+    filters:
+      - delayed_on_off: 50ms
+
+  # Physical button - GPIO1 (confirmed from 1PM Gen4)
+  - platform: gpio
+    name: "Physical Button"
+    pin:
+      number: GPIO1
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    filters:
+      - delayed_on_off: 50ms
+
+# ===================================
+# TEMPERATURE SENSOR (CONFIRMED)
+# ===================================
+
+sensor:
+  # NTC temperature sensor - GPIO3 (confirmed from 1PM Gen4)
+  - platform: ntc
+    name: "Temperature"
+    sensor: temperature_resistance
+    calibration:
+      b_constant: 3350
+      reference_resistance: 10kOhm
+      reference_temperature: 25°C
+
+  - platform: resistance
+    id: temperature_resistance
+    sensor: temperature_adc
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+
+  - platform: adc
+    id: temperature_adc
+    pin: GPIO3
+    attenuation: 11db
+    update_interval: 10s
+
+# ===================================
+# LED TESTS (OPTIONAL)
+# ===================================
+# Commenting out for now - will investigate separately
+
+# Option 1: Status LED (Mini Gen3 style)
+# status_led:
+#   pin:
+#     number: GPIO0
+#     inverted: true
+
+# Option 2: Regular output
+# output:
+#   - platform: gpio
+#     id: led_output
+#     pin:
+#       number: GPIO0
+#       inverted: true
+
+# Option 3: Test GPIO0 as switch
+# switch:
+#   - platform: gpio
+#     name: "Test LED GPIO0"
+#     pin:
+#       number: GPIO0
+#       inverted: true
+
+button:
+  - platform: restart
+    name: "Restart"
