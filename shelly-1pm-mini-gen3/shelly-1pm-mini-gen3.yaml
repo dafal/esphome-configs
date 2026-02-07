@@ -13,7 +13,7 @@ substitutions:
   device_name: shelly-1pm-mini-gen3
   friendly_name: Shelly 1PM Mini Gen3
   project_name: dafal_esphome-configs.shelly_1pm_mini_gen3
-  project_version: 1.0.0
+  project_version: 1.2.0
   area: ""
 
 # ===================================
@@ -611,9 +611,13 @@ binary_sensor:
                     if (id(switch_mode).current_option() == "Smart Multi-Click") {
                       id(relay).toggle();
                     }
-                - event.trigger:
-                    id: switch_single_click
-                    event_type: single_click
+                - homeassistant.event:
+                    event: esphome.button_click
+                    data:
+                      device: ${device_name}
+                      friendly_name: ${friendly_name}
+                      click_type: single
+                      message: "Single click detected"
         invalid_cooldown: 0.5s
 
       - timing:
@@ -635,9 +639,13 @@ binary_sensor:
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 2 clicks");
-                - event.trigger:
-                    id: switch_double_click
-                    event_type: double_click
+                - homeassistant.event:
+                    event: esphome.button_click
+                    data:
+                      device: ${device_name}
+                      friendly_name: ${friendly_name}
+                      click_type: double
+                      message: "Double click detected"
         invalid_cooldown: 0.5s
 
       - timing:
@@ -665,9 +673,13 @@ binary_sensor:
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 3 clicks");
-                - event.trigger:
-                    id: switch_triple_click
-                    event_type: triple_click
+                - homeassistant.event:
+                    event: esphome.button_click
+                    data:
+                      device: ${device_name}
+                      friendly_name: ${friendly_name}
+                      click_type: triple
+                      message: "Triple click detected"
         invalid_cooldown: 0.5s
 
       - timing:
@@ -681,9 +693,13 @@ binary_sensor:
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: Long press");
-                - event.trigger:
-                    id: switch_long_press
-                    event_type: long_press
+                - homeassistant.event:
+                    event: esphome.button_click
+                    data:
+                      device: ${device_name}
+                      friendly_name: ${friendly_name}
+                      click_type: long_press
+                      message: "Long press detected"
         invalid_cooldown: 0.5s
 
   - platform: gpio
@@ -739,39 +755,6 @@ binary_sensor:
       }
       return false;
     icon: "mdi:light-switch"
-
-# ===================================
-# Events (Multi-Click)
-# ===================================
-
-event:
-  - platform: template
-    name: "Switch Single Click"
-    id: switch_single_click
-    event_types:
-      - single_click
-    device_class: button
-
-  - platform: template
-    name: "Switch Double Click"
-    id: switch_double_click
-    event_types:
-      - double_click
-    device_class: button
-
-  - platform: template
-    name: "Switch Triple Click"
-    id: switch_triple_click
-    event_types:
-      - triple_click
-    device_class: button
-
-  - platform: template
-    name: "Switch Long Press"
-    id: switch_long_press
-    event_types:
-      - long_press
-    device_class: button
 
 # ===================================
 # Diagnostic Controls

@@ -12,7 +12,7 @@ substitutions:
   device_name: shelly-1-mini-gen3
   friendly_name: Shelly 1 Mini Gen3
   project_name: dafal_esphome-configs.shelly_1_mini_gen3
-  project_version: 1.0.0
+  project_version: 1.2.0
   area: ""
 
 # ===================================

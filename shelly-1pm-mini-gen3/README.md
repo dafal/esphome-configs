@@ -30,7 +30,29 @@ ESPHome configuration for the Shelly 1PM Mini Gen3 (ESP32-C3) with metering and 
 ## Multi-Click timing (unchanged)
 - Press ≤ ~1.0s; gaps ≤ ~0.8s; final release ≥ ~0.3s; long press ≥ ~0.8s
 
+## Home Assistant Events
+Multi-click events are published as Home Assistant events (not entity events), preventing spurious triggers on boot/WiFi reconnect.
+
+**Event type:** `esphome.button_click`
+
+**Event data:**
+- `device`: Device name (e.g., `shelly-1pm-mini-gen3`)
+- `friendly_name`: Device friendly name
+- `click_type`: `single`, `double`, `triple`, or `long_press`
+- `message`: Human-readable description
+
+**Example automation trigger:**
+```yaml
+trigger:
+  - platform: event
+    event_type: esphome.button_click
+    event_data:
+      device: shelly-1pm-mini-gen3  # Use your actual device name
+      click_type: single
+```
+
 ## Recent changes
+- **v1.2.0**: Multi-click events changed to `esphome.button_click` Home Assistant events (prevents boot/reconnect event replay)
 - Added **Smart Multi-Click** (single click toggles relay; all click events still emitted)
 - BLE Passive scan made continuous and restored after boot
 - Removed MAC suffix from names; fallback AP SSID set to `esphome`; mDNS explicitly enabled
