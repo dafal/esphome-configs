@@ -27,68 +27,64 @@ esphome:
     version: ${project_version}
   area: ${area}
   on_boot:
-    - priority: 600  # Early, before GPIO components init
-      then:
-        - lambda: |-
-            id(last_connection_time) = millis();
-    - priority: -100  # Run after all components initialized
-      then:
-        - lambda: |-
-            // Apply relay restore mode on boot with full logic
-            std::string mode = id(relay_restore_mode).current_option();
-            bool last_state = id(relay_last_state);
-            float temp = id(temperature).state;
-            bool temp_ok = isnan(temp) || temp < (id(overheat_threshold).state - id(temp_hysteresis).state);
+    priority: -100  # Run after all components initialized
+    then:
+      - lambda: |-
+          // Apply relay restore mode on boot with full logic
+          std::string mode = id(relay_restore_mode).current_option();
+          bool last_state = id(relay_last_state);
+          float temp = id(temperature).state;
+          bool temp_ok = isnan(temp) || temp < (id(overheat_threshold).state - id(temp_hysteresis).state);
 
-            ESP_LOGI("boot", "Applying relay restore mode: %s", mode.c_str());
-            ESP_LOGI("boot", "Last relay state: %s", last_state ? "ON" : "OFF");
-            ESP_LOGI("boot", "Temperature: %.1f°C, OK: %s", temp, temp_ok ? "YES" : "NO");
+          ESP_LOGI("boot", "Applying relay restore mode: %s", mode.c_str());
+          ESP_LOGI("boot", "Last relay state: %s", last_state ? "ON" : "OFF");
+          ESP_LOGI("boot", "Temperature: %.1f°C, OK: %s", temp, temp_ok ? "YES" : "NO");
 
-            if (mode == "Always OFF") {
-              ESP_LOGI("boot", "Mode: Always OFF - forcing relay OFF");
+          if (mode == "Always OFF") {
+            ESP_LOGI("boot", "Mode: Always OFF - forcing relay OFF");
+            id(relay).turn_off();
+
+          } else if (mode == "Always ON") {
+            if (temp_ok) {
+              ESP_LOGI("boot", "Mode: Always ON - forcing relay ON (temp OK)");
+              id(relay).turn_on();
+            } else {
+              ESP_LOGW("boot", "Mode: Always ON - but temperature too high, keeping OFF");
               id(relay).turn_off();
-
-            } else if (mode == "Always ON") {
-              if (temp_ok) {
-                ESP_LOGI("boot", "Mode: Always ON - forcing relay ON (temp OK)");
-                id(relay).turn_on();
-              } else {
-                ESP_LOGW("boot", "Mode: Always ON - but temperature too high, keeping OFF");
-                id(relay).turn_off();
-              }
-
-            } else if (mode == "Restore (default OFF)") {
-              if (last_state && temp_ok) {
-                ESP_LOGI("boot", "Mode: Restore (default OFF) - restoring ON state (temp OK)");
-                id(relay).turn_on();
-              } else {
-                ESP_LOGI("boot", "Mode: Restore (default OFF) - defaulting to OFF");
-                id(relay).turn_off();
-              }
-
-            } else if (mode == "Restore (default ON)") {
-              if (!last_state) {
-                ESP_LOGI("boot", "Mode: Restore (default ON) - last state was OFF, staying OFF");
-                id(relay).turn_off();
-              } else if (temp_ok) {
-                ESP_LOGI("boot", "Mode: Restore (default ON) - restoring ON state (temp OK)");
-                id(relay).turn_on();
-              } else {
-                ESP_LOGW("boot", "Mode: Restore (default ON) - temperature too high, keeping OFF");
-                id(relay).turn_off();
-              }
             }
 
-            id(overtemp_latched) = false;
-
-            if (id(switch_mode).current_option() == "Pulse Counter") {
-              id(pulse_counter_sensor).publish_state(id(pulse_counter));
+          } else if (mode == "Restore (default OFF)") {
+            if (last_state && temp_ok) {
+              ESP_LOGI("boot", "Mode: Restore (default OFF) - restoring ON state (temp OK)");
+              id(relay).turn_on();
+            } else {
+              ESP_LOGI("boot", "Mode: Restore (default OFF) - defaulting to OFF");
+              id(relay).turn_off();
             }
 
-            auto saved_ble = id(ble_scan_mode).current_option();
-            ESP_LOGI("boot", "BLE restore scheduled: %s", saved_ble);
-        - delay: 1s
-        - script.execute: restore_ble_mode
+          } else if (mode == "Restore (default ON)") {
+            if (!last_state) {
+              ESP_LOGI("boot", "Mode: Restore (default ON) - last state was OFF, staying OFF");
+              id(relay).turn_off();
+            } else if (temp_ok) {
+              ESP_LOGI("boot", "Mode: Restore (default ON) - restoring ON state (temp OK)");
+              id(relay).turn_on();
+            } else {
+              ESP_LOGW("boot", "Mode: Restore (default ON) - temperature too high, keeping OFF");
+              id(relay).turn_off();
+            }
+          }
+
+          id(overtemp_latched) = false;
+
+          if (id(switch_mode).current_option() == "Pulse Counter") {
+            id(pulse_counter_sensor).publish_state(id(pulse_counter));
+          }
+
+          auto saved_ble = id(ble_scan_mode).current_option();
+          ESP_LOGI("boot", "BLE restore scheduled: %s", saved_ble);
+      - delay: 1s
+      - script.execute: restore_ble_mode
 
 esp32:
   variant: esp32c3
@@ -124,10 +120,6 @@ globals:
     type: bool
     restore_value: false
     initial_value: 'false'
-  - id: last_connection_time
-    type: uint32_t
-    restore_value: false
-    initial_value: '0'
 
 # ===================================
 # Network Configuration
@@ -142,8 +134,6 @@ wifi:
     ssid: "esphome"
     password: !secret fallback_password
   on_connect:
-    - lambda: |-
-        id(last_connection_time) = millis();
     - logger.log: "WiFi connected"
   on_disconnect:
     - logger.log: "WiFi disconnected"
@@ -572,13 +562,11 @@ binary_sensor:
                     if (id(switch_mode).current_option() == "Smart Multi-Click") {
                       id(relay).toggle();
                     }
-                - if:
-                    condition:
-                      lambda: 'return (millis() - id(last_connection_time)) > 5000;'
-                    then:
-                      - event.trigger:
-                          id: switch_single_click
-                          event_type: single_click
+                - homeassistant.event:
+                    event: esphome.shelly_1_mini_gen3_click
+                    data:
+                      device: ${device_name}
+                      click_type: single
         invalid_cooldown: 0.5s
 
       # Double click
@@ -601,13 +589,11 @@ binary_sensor:
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 2 clicks");
-                - if:
-                    condition:
-                      lambda: 'return (millis() - id(last_connection_time)) > 5000;'
-                    then:
-                      - event.trigger:
-                          id: switch_double_click
-                          event_type: double_click
+                - homeassistant.event:
+                    event: esphome.shelly_1_mini_gen3_click
+                    data:
+                      device: ${device_name}
+                      click_type: double
         invalid_cooldown: 0.5s
 
       # Triple click
@@ -636,13 +622,11 @@ binary_sensor:
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 3 clicks");
-                - if:
-                    condition:
-                      lambda: 'return (millis() - id(last_connection_time)) > 5000;'
-                    then:
-                      - event.trigger:
-                          id: switch_triple_click
-                          event_type: triple_click
+                - homeassistant.event:
+                    event: esphome.shelly_1_mini_gen3_click
+                    data:
+                      device: ${device_name}
+                      click_type: triple
         invalid_cooldown: 0.5s
 
       # Long press
@@ -657,13 +641,11 @@ binary_sensor:
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: Long press");
-                - if:
-                    condition:
-                      lambda: 'return (millis() - id(last_connection_time)) > 5000;'
-                    then:
-                      - event.trigger:
-                          id: switch_long_press
-                          event_type: long_press
+                - homeassistant.event:
+                    event: esphome.shelly_1_mini_gen3_click
+                    data:
+                      device: ${device_name}
+                      click_type: long_press
         invalid_cooldown: 0.5s
 
   # Physical button input (GPIO 1)
@@ -713,43 +695,6 @@ binary_sensor:
       // Return false (not publishing) when not in Detached mode
       return false;
     icon: "mdi:light-switch"
-
-# ===================================
-# Events (Multi-Click)
-# ===================================
-
-event:
-  # Single click event
-  - platform: template
-    name: "Switch Single Click"
-    id: switch_single_click
-    event_types:
-      - single_click
-    device_class: button
-
-  # Double click event
-  - platform: template
-    name: "Switch Double Click"
-    id: switch_double_click
-    event_types:
-      - double_click
-    device_class: button
-
-  # Triple click event
-  - platform: template
-    name: "Switch Triple Click"
-    id: switch_triple_click
-    event_types:
-      - triple_click
-    device_class: button
-
-  # Long press event
-  - platform: template
-    name: "Switch Long Press"
-    id: switch_long_press
-    event_types:
-      - long_press
-    device_class: button
 
 # ===================================
 # Diagnostic Controls
