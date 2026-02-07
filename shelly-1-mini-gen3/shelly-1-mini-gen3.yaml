@@ -563,7 +563,7 @@ binary_sensor:
                       id(relay).toggle();
                     }
                 - homeassistant.event:
-                    event: esphome.shelly_1_mini_gen3_click
+                    event: esphome.button_click
                     data:
                       device: ${device_name}
                       friendly_name: ${friendly_name}
@@ -592,7 +592,7 @@ binary_sensor:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 2 clicks");
                 - homeassistant.event:
-                    event: esphome.shelly_1_mini_gen3_click
+                    event: esphome.button_click
                     data:
                       device: ${device_name}
                       friendly_name: ${friendly_name}
@@ -627,7 +627,7 @@ binary_sensor:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 3 clicks");
                 - homeassistant.event:
-                    event: esphome.shelly_1_mini_gen3_click
+                    event: esphome.button_click
                     data:
                       device: ${device_name}
                       friendly_name: ${friendly_name}
@@ -648,7 +648,7 @@ binary_sensor:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: Long press");
                 - homeassistant.event:
-                    event: esphome.shelly_1_mini_gen3_click
+                    event: esphome.button_click
                     data:
                       device: ${device_name}
                       friendly_name: ${friendly_name}
