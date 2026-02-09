@@ -14,7 +14,7 @@ substitutions:
   device_name: shelly-1pm-gen4
   friendly_name: Shelly 1PM Gen4
   project_name: dafal_esphome-configs.shelly_1pm_gen4
-  project_version: 1.2.1
+  project_version: 1.2.2
   area: ""
   # BL0942 calibration references
   current_reference: "251213.46469622"
@@ -500,6 +500,23 @@ script:
           else:
             - script.execute: ble_mode_disabled
 
+  - id: detect_long_press
+    mode: restart
+    then:
+      - delay: 800ms
+      - if:
+          condition:
+            binary_sensor.is_on: physical_switch
+          then:
+            - lambda: 'ESP_LOGI("multi", "Multi-click: Long press");'
+            - homeassistant.event:
+                event: esphome.button_click
+                data:
+                  device: ${device_name}
+                  friendly_name: ${friendly_name}
+                  click_type: long_press
+                  message: "Long press detected"
+
 # ===================================
 # Output Control
 # ===================================
@@ -604,27 +621,18 @@ binary_sensor:
               ESP_LOGI("switch", "Detached mode: press event");
             }
         
-        # Long-press detection - fires immediately at 800ms while held
+        # Long-press detection - non-blocking script execution
         - if:
             condition:
               lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
             then:
-              - delay: 800ms
-              - if:
-                  condition:
-                    binary_sensor.is_on: physical_switch
-                  then:
-                    - lambda: 'ESP_LOGI("multi", "Multi-click: Long press");'
-                    - homeassistant.event:
-                        event: esphome.button_click
-                        data:
-                          device: ${device_name}
-                          friendly_name: ${friendly_name}
-                          click_type: long_press
-                          message: "Long press detected"
+              - script.execute: detect_long_press
 
     on_release:
       then:
+        # Stop long-press detection if button released early
+        - script.stop: detect_long_press
+        
         - lambda: |-
             std::string mode = id(switch_mode).current_option();
             ESP_LOGI("switch", "Release detected, mode: %s", mode.c_str());
