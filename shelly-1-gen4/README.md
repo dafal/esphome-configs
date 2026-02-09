@@ -69,9 +69,10 @@ Both Shelly 1PM models use different GPIOs (GPIO5 for Mini Gen3, GPIO4 for Gen4)
 - **Status LED not working**: The GPIO0 status LED does not work with current ESPHome (same issue on 1PM Gen4). The LED works correctly with Shelly stock firmware. This appears to be an ESPHome framework compatibility issue with ESP32-C6. The configuration is correct but the LED remains off.
 
 ## Recent changes
+- **v1.2.1**: Long-press now fires immediately at 800ms (no need to release button)
 - **v1.2.0**: Initial release based on Shelly 1 Mini Gen3 v1.2.0 with ESP32-C6 hardware from Shelly 1PM Gen4
-- Multi-click events using `esphome.button_click` Home Assistant events (prevents boot/reconnect event replay)
-- **Smart Multi-Click** mode (single click toggles relay; all click events still emitted)
-- BLE Passive scan made continuous and restored after boot
-- Static device names (no MAC suffix); fallback AP SSID set to `esphome`; mDNS explicitly enabled
-- **Relay GPIO confirmed**: GPIO5 (tested on hardware)
+  - Multi-click events using `esphome.button_click` Home Assistant events (prevents boot/reconnect event replay)
+  - **Smart Multi-Click** mode (single click toggles relay; all click events still emitted)
+  - BLE Passive scan made continuous and restored after boot
+  - Static device names (no MAC suffix); fallback AP SSID set to `esphome`; mDNS explicitly enabled
+  - **Relay GPIO confirmed**: GPIO5 (tested on hardware)

@@ -52,7 +52,8 @@ trigger:
 ```
 
 ## Recent changes
+- **v1.2.1**: Long-press now fires immediately at 800ms (no need to release button)
 - **v1.2.0**: Multi-click events changed to `esphome.button_click` Home Assistant events (prevents boot/reconnect event replay)
-- Added **Smart Multi-Click** (single click toggles relay; all click events still emitted)
-- BLE Passive scan made continuous and restored after boot
-- Removed MAC suffix from names; fallback AP SSID set to `esphome`; mDNS explicitly enabled
+  - Added **Smart Multi-Click** (single click toggles relay; all click events still emitted)
+  - BLE Passive scan made continuous and restored after boot
+  - Removed MAC suffix from names; fallback AP SSID set to `esphome`; mDNS explicitly enabled

@@ -14,7 +14,7 @@ substitutions:
   device_name: shelly-1pm-gen4
   friendly_name: Shelly 1PM Gen4
   project_name: dafal_esphome-configs.shelly_1pm_gen4
-  project_version: 1.1.0
+  project_version: 1.2.1
   area: ""
   # BL0942 calibration references
   current_reference: "251213.46469622"
@@ -603,6 +603,25 @@ binary_sensor:
             } else if (mode == "Detached") {
               ESP_LOGI("switch", "Detached mode: press event");
             }
+        
+        # Long-press detection - fires immediately at 800ms while held
+        - if:
+            condition:
+              lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
+            then:
+              - delay: 800ms
+              - if:
+                  condition:
+                    binary_sensor.is_on: physical_switch
+                  then:
+                    - lambda: 'ESP_LOGI("multi", "Multi-click: Long press");'
+                    - homeassistant.event:
+                        event: esphome.button_click
+                        data:
+                          device: ${device_name}
+                          friendly_name: ${friendly_name}
+                          click_type: long_press
+                          message: "Long press detected"
 
     on_release:
       then:
@@ -649,9 +668,13 @@ binary_sensor:
                     if (id(switch_mode).current_option() == "Smart Multi-Click") {
                       id(relay).toggle();
                     }
-                - event.trigger:
-                    id: switch_single_click
-                    event_type: single_click
+                - homeassistant.event:
+                    event: esphome.button_click
+                    data:
+                      device: ${device_name}
+                      friendly_name: ${friendly_name}
+                      click_type: single
+                      message: "Single click detected"
         invalid_cooldown: 0.5s
 
       - timing:
@@ -673,9 +696,13 @@ binary_sensor:
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 2 clicks");
-                - event.trigger:
-                    id: switch_double_click
-                    event_type: double_click
+                - homeassistant.event:
+                    event: esphome.button_click
+                    data:
+                      device: ${device_name}
+                      friendly_name: ${friendly_name}
+                      click_type: double
+                      message: "Double click detected"
         invalid_cooldown: 0.5s
 
       - timing:
@@ -703,25 +730,13 @@ binary_sensor:
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 3 clicks");
-                - event.trigger:
-                    id: switch_triple_click
-                    event_type: triple_click
-        invalid_cooldown: 0.5s
-
-      - timing:
-          - state: true
-            min_length: 800ms
-            max_length: 5s
-        then:
-          - if:
-              condition:
-                lambda: 'return id(switch_mode).current_option() == "Multi-Click" || id(switch_mode).current_option() == "Smart Multi-Click";'
-              then:
-                - lambda: |-
-                    ESP_LOGI("multi", "Multi-click: Long press");
-                - event.trigger:
-                    id: switch_long_press
-                    event_type: long_press
+                - homeassistant.event:
+                    event: esphome.button_click
+                    data:
+                      device: ${device_name}
+                      friendly_name: ${friendly_name}
+                      click_type: triple
+                      message: "Triple click detected"
         invalid_cooldown: 0.5s
 
   - platform: gpio
@@ -803,39 +818,6 @@ binary_sensor:
       - delayed_on_off: 50ms
     entity_category: diagnostic
     icon: "mdi:connection"
-
-# ===================================
-# Events (Multi-Click)
-# ===================================
-
-event:
-  - platform: template
-    name: "Switch Single Click"
-    id: switch_single_click
-    event_types:
-      - single_click
-    device_class: button
-
-  - platform: template
-    name: "Switch Double Click"
-    id: switch_double_click
-    event_types:
-      - double_click
-    device_class: button
-
-  - platform: template
-    name: "Switch Triple Click"
-    id: switch_triple_click
-    event_types:
-      - triple_click
-    device_class: button
-
-  - platform: template
-    name: "Switch Long Press"
-    id: switch_long_press
-    event_types:
-      - long_press
-    device_class: button
 
 # ===================================
 # Diagnostic Controls
