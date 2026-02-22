@@ -13,6 +13,9 @@ ESPHome configuration for Shelly 1PM Mini Gen3 with power metering (BL0942), ove
 ### [ProBreeze Dehumidifier 20L (PB-D-24-WF)](./probreeze-dehumidifier/)
 ESPHome configuration for ProBreeze 20L PB-D-24-WF dehumidifier with Tuya MCU. Replace the original Tuya WBR3 WiFi board with an ESP32-C6 mini board for local control via Home Assistant.
 
+### [Athom PS02C3MZ Sensor (LD2450)](./athom-ps02c3mz-sensor/)
+ESPHome configuration for Athom PS02C3MZ LD2450 presence sensor with per-zone presence binary sensors and a guided zone-learning workflow to auto-fill zone coordinates.
+
 ## Using these configs as ESPHome packages
 Add a minimal device YAML in your ESPHome dashboard and pull the package directly from this repo using `remote_package`.
 
