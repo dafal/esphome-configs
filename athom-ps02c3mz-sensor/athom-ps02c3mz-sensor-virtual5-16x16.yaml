@@ -216,9 +216,41 @@ interval:
             const int word = cell / 32;
             const uint32_t bit = 1UL << (cell % 32);
 
+            int expansion = static_cast<int>(id(virtual_zone_expansion).state);
+            if (expansion < 0) expansion = 0;
+            if (expansion > 2) expansion = 2;
+
+            const int cell_row = cell / 16;
+            const int cell_col = cell % 16;
+
             for (int zone = 0; zone < 5; zone++) {
               const int offset = zone * 8;
-              if ((id(zone_masks)[offset + word] & bit) != 0U) {
+              bool zone_match = false;
+              for (int dr = -expansion; dr <= expansion && !zone_match; dr++) {
+                const int rr = cell_row + dr;
+                if (rr < 0 || rr > 15) {
+                  continue;
+                }
+                for (int dc = -expansion; dc <= expansion; dc++) {
+                  const int cc = cell_col + dc;
+                  if (cc < 0 || cc > 15) {
+                    continue;
+                  }
+                  const int ncell = rr * 16 + cc;
+                  const int nword = ncell / 32;
+                  const uint32_t nbit = 1UL << (ncell % 32);
+                  if ((id(zone_masks)[offset + nword] & nbit) != 0U) {
+                    zone_match = true;
+                    break;
+                  }
+                }
+              }
+
+              if (!zone_match && (id(zone_masks)[offset + word] & bit) != 0U) {
+                zone_match = true;
+              }
+
+              if (zone_match) {
                 if (zone == 0) id(virtual_zone_presence_1) = true;
                 if (zone == 1) id(virtual_zone_presence_2) = true;
                 if (zone == 2) id(virtual_zone_presence_3) = true;
@@ -458,6 +490,18 @@ number:
     restore_value: true
 
   - platform: template
+    name: "Virtual Zone Expansion"
+    id: virtual_zone_expansion
+    icon: "mdi:grid-plus"
+    entity_category: config
+    optimistic: true
+    min_value: 0
+    max_value: 2
+    step: 1
+    initial_value: 1
+    restore_value: true
+
+  - platform: template
     name: "Grid X Min"
     id: grid_x_min_mm
     unit_of_measurement: "mm"
@@ -530,12 +574,33 @@ sensor:
       x:
         name: "Target 1 X"
         id: target_1_x
+        filters:
+          - timeout:
+              timeout: 300ms
+              value: last
+          - throttle_with_priority:
+              timeout: 200ms
+              value: .nan
       y:
         name: "Target 1 Y"
         id: target_1_y
+        filters:
+          - timeout:
+              timeout: 300ms
+              value: last
+          - throttle_with_priority:
+              timeout: 200ms
+              value: .nan
       distance:
         name: "Target 1 Distance"
         id: target_1_distance
+        filters:
+          - timeout:
+              timeout: 300ms
+              value: last
+          - throttle_with_priority:
+              timeout: 200ms
+              value: .nan
       speed:
         name: "Target 1 Speed"
         id: target_1_speed
@@ -543,12 +608,33 @@ sensor:
       x:
         name: "Target 2 X"
         id: target_2_x
+        filters:
+          - timeout:
+              timeout: 300ms
+              value: last
+          - throttle_with_priority:
+              timeout: 200ms
+              value: .nan
       y:
         name: "Target 2 Y"
         id: target_2_y
+        filters:
+          - timeout:
+              timeout: 300ms
+              value: last
+          - throttle_with_priority:
+              timeout: 200ms
+              value: .nan
       distance:
         name: "Target 2 Distance"
         id: target_2_distance
+        filters:
+          - timeout:
+              timeout: 300ms
+              value: last
+          - throttle_with_priority:
+              timeout: 200ms
+              value: .nan
       speed:
         name: "Target 2 Speed"
         id: target_2_speed
@@ -556,12 +642,33 @@ sensor:
       x:
         name: "Target 3 X"
         id: target_3_x
+        filters:
+          - timeout:
+              timeout: 300ms
+              value: last
+          - throttle_with_priority:
+              timeout: 200ms
+              value: .nan
       y:
         name: "Target 3 Y"
         id: target_3_y
+        filters:
+          - timeout:
+              timeout: 300ms
+              value: last
+          - throttle_with_priority:
+              timeout: 200ms
+              value: .nan
       distance:
         name: "Target 3 Distance"
         id: target_3_distance
+        filters:
+          - timeout:
+              timeout: 300ms
+              value: last
+          - throttle_with_priority:
+              timeout: 200ms
+              value: .nan
       speed:
         name: "Target 3 Speed"
         id: target_3_speed
