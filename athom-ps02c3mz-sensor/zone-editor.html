@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PS02C3MZ Zone Editor</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #23263a;
+    --border: #2e3250;
+    --text: #e2e8f0;
+    --text-muted: #6b7280;
+    --accent: #3b82f6;
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --z1: rgba(59,130,246,0.55);
+    --z2: rgba(34,197,94,0.55);
+    --z3: rgba(249,115,22,0.55);
+    --z4: rgba(168,85,247,0.55);
+    --z5: rgba(239,68,68,0.55);
+    --z1s: #3b82f6;
+    --z2s: #22c55e;
+    --z3s: #f97316;
+    --z4s: #a855f7;
+    --z5s: #ef4444;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Top bar ── */
+  #topbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #topbar h1 { font-size: 15px; font-weight: 600; white-space: nowrap; }
+  #ipInput {
+    flex: 1;
+    max-width: 240px;
+    padding: 6px 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+  }
+  #ipInput:focus { border-color: var(--accent); }
+  button {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: opacity .15s;
+  }
+  button:hover { opacity: .85; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  #connectBtn { background: var(--accent); color: #fff; }
+  #loadBtn { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  #saveAllBtn { background: var(--success); color: #fff; }
+  #statusDot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+    transition: background .3s;
+  }
+  #statusDot.ok { background: var(--success); }
+  #statusDot.err { background: var(--danger); }
+  #statusText { font-size: 12px; color: var(--text-muted); }
+
+  /* ── Main layout ── */
+  #main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    gap: 0;
+  }
+
+  /* ── Side panel ── */
+  #sidebar {
+    width: 200px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 12px 10px;
+    gap: 16px;
+  }
+  .panel-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .zone-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .zone-row:hover { background: var(--surface2); }
+  .zone-row.active-zone { background: var(--surface2); outline: 1px solid var(--border); }
+  .zone-dot {
+    width: 12px; height: 12px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .zone-label { flex: 1; font-size: 13px; }
+  .zone-count { font-size: 11px; color: var(--text-muted); }
+  .zone-vis {
+    width: 16px; height: 16px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    background: transparent;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+  .zone-vis.on { background: var(--surface2); color: var(--text); }
+
+  .save-zone-btn {
+    width: 100%;
+    margin-top: 4px;
+    padding: 5px 0;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 5px;
+    font-size: 12px;
+  }
+
+  .stats-row { font-size: 12px; color: var(--text-muted); margin: 2px 0; }
+
+  /* ── Canvas area ── */
+  #canvasWrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: var(--bg);
+    position: relative;
+  }
+  #gridCanvas {
+    cursor: crosshair;
+    display: block;
+    image-rendering: pixelated;
+  }
+
+  /* ── Log bar ── */
+  #logbar {
+    height: 32px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  #logText { font-size: 12px; color: var(--text-muted); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #coordText { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+
+  /* ── Tooltip ── */
+  #tooltip {
+    position: fixed;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 4px 8px;
+    font-size: 11px;
+    pointer-events: none;
+    display: none;
+    z-index: 100;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div id="topbar">
+  <h1>PS02C3MZ Zone Editor</h1>
+  <input id="ipInput" type="text" placeholder="192.168.1.x" value="">
+  <button id="connectBtn" onclick="connect()">Connect</button>
+  <button id="loadBtn" onclick="loadAll()" disabled>Load All</button>
+  <button id="saveAllBtn" onclick="saveAll()" disabled>Save All</button>
+  <div id="statusDot"></div>
+  <span id="statusText">Disconnected</span>
+</div>
+
+<!-- Main -->
+<div id="main">
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div>
+      <div class="panel-title">Edit Zone</div>
+      <div id="zoneList"></div>
+    </div>
+    <div>
+      <div class="panel-title">Targets</div>
+      <div id="targetStats">
+        <div class="stats-row" id="t1stat">T1 —</div>
+        <div class="stats-row" id="t2stat">T2 —</div>
+        <div class="stats-row" id="t3stat">T3 —</div>
+      </div>
+    </div>
+    <div>
+      <div class="panel-title">Grid Bounds</div>
+      <div id="boundsStats">
+        <div class="stats-row" id="bxstat">X: —</div>
+        <div class="stats-row" id="bystat">Y: —</div>
+      </div>
+    </div>
+    <div>
+      <div class="panel-title">Help</div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.6">
+        Click row to select zone.<br>
+        Click eye to show/hide.<br>
+        Click/drag grid to paint.<br>
+        Right-click to erase.<br>
+        Targets shown as dots.
+      </div>
+    </div>
+  </div>
+
+  <!-- Canvas -->
+  <div id="canvasWrap">
+    <canvas id="gridCanvas"></canvas>
+  </div>
+</div>
+
+<!-- Log bar -->
+<div id="logbar">
+  <span id="logText">Open a device to start.</span>
+  <span id="coordText"></span>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+/* ────────────────────────────────────────────────────────────
+   Constants & state
+──────────────────────────────────────────────────────────── */
+const COLS = 16, ROWS = 16, N_ZONES = 5;
+const ZONE_COLORS_FILL = ['rgba(59,130,246,0.45)','rgba(34,197,94,0.45)','rgba(249,115,22,0.45)','rgba(168,85,247,0.45)','rgba(239,68,68,0.45)'];
+const ZONE_COLORS_SOLID = ['#3b82f6','#22c55e','#f97316','#a855f7','#ef4444'];
+const ZONE_NAMES = ['Zone 1','Zone 2','Zone 3','Zone 4','Zone 5'];
+const TARGET_COLORS = ['#ff4444','#ff9900','#ffee00'];
+
+let deviceIp = '';
+let connected = false;
+let sse = null;
+
+// 5 zone masks: each is a Uint32Array(8) representing 256 bits
+const masks = Array.from({length: N_ZONES}, () => new Uint32Array(8));
+
+// Visibility per zone
+const visible = Array(N_ZONES).fill(true);
+
+// Active editing zone
+let activeZone = 0;
+
+// Grid bounds (mm)
+let gridXMin = -6000, gridXMax = 6000, gridYMin = 0, gridYMax = 6000;
+
+// Live targets [{x,y,distance,valid}]
+const targets = Array.from({length:3}, () => ({x:0,y:0,distance:0,valid:false}));
+
+// Paint state
+let isPainting = false;
+let paintValue = true; // true=set, false=clear
+let lastPaintedCell = -1;
+
+// Animation
+let animFrame = null;
+let pulseT = 0;
+
+// Canvas
+const canvas = document.getElementById('gridCanvas');
+const ctx = canvas.getContext('2d');
+
+/* ────────────────────────────────────────────────────────────
+   Bit helpers
+──────────────────────────────────────────────────────────── */
+function getBit(mask, cell) {
+  const word = (cell / 32) | 0;
+  const bit = cell % 32;
+  return (mask[word] >>> bit) & 1;
+}
+function setBit(mask, cell, val) {
+  const word = (cell / 32) | 0;
+  const bit = cell % 32;
+  if (val) mask[word] |= (1 >>> 0) << bit;
+  else mask[word] &= ~((1 >>> 0) << bit);
+}
+function countBits(mask) {
+  let n = 0;
+  for (let i = 0; i < 8; i++) {
+    let v = mask[i] >>> 0;
+    v = v - ((v >>> 1) & 0x55555555);
+    v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+    n += (((v + (v >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
+  }
+  return n;
+}
+function maskToHex(mask) {
+  return Array.from(mask).map(w => (w >>> 0).toString(16).padStart(8,'0').toUpperCase()).join('');
+}
+function hexToMask(hex, mask) {
+  if (hex.length !== 64) return false;
+  for (let i = 0; i < 8; i++) {
+    mask[i] = parseInt(hex.substr(i*8, 8), 16) >>> 0;
+  }
+  return true;
+}
+
+/* ────────────────────────────────────────────────────────────
+   Grid geometry
+──────────────────────────────────────────────────────────── */
+let cellSize = 32;
+let offsetX = 0, offsetY = 0;
+
+function computeGeometry() {
+  const wrap = document.getElementById('canvasWrap');
+  const w = wrap.clientWidth - 4;
+  const h = wrap.clientHeight - 4;
+  const labelSize = 20;
+  const availW = w - labelSize;
+  const availH = h - labelSize;
+  cellSize = Math.floor(Math.min(availW / COLS, availH / ROWS));
+  cellSize = Math.max(8, Math.min(cellSize, 56));
+  const gridW = cellSize * COLS;
+  const gridH = cellSize * ROWS;
+  canvas.width = gridW + labelSize;
+  canvas.height = gridH + labelSize;
+  offsetX = labelSize;
+  offsetY = 0;
+}
+
+function cellFromXY(px, py) {
+  const col = ((px - offsetX) / cellSize) | 0;
+  const row = ((py - offsetY) / cellSize) | 0;
+  if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return -1;
+  return row * COLS + col;
+}
+
+function targetToCell(tx, ty) {
+  if (gridXMax <= gridXMin || gridYMax <= gridYMin) return {col:-1,row:-1};
+  const col = Math.floor(((tx - gridXMin) / (gridXMax - gridXMin)) * COLS);
+  const row = Math.floor(((ty - gridYMin) / (gridYMax - gridYMin)) * ROWS);
+  return {col, row};
+}
+
+/* ────────────────────────────────────────────────────────────
+   Drawing
+──────────────────────────────────────────────────────────── */
+function draw() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background
+  ctx.fillStyle = '#161926';
+  ctx.fillRect(offsetX, offsetY, COLS*cellSize, ROWS*cellSize);
+
+  // Zone fills (bottom-up, transparent, additive)
+  for (let z = 0; z < N_ZONES; z++) {
+    if (!visible[z]) continue;
+    ctx.fillStyle = ZONE_COLORS_FILL[z];
+    for (let cell = 0; cell < 256; cell++) {
+      if (getBit(masks[z], cell)) {
+        const col = cell % COLS;
+        const row = (cell / COLS) | 0;
+        ctx.fillRect(offsetX + col*cellSize, offsetY + row*cellSize, cellSize, cellSize);
+      }
+    }
+  }
+
+  // Active zone bright outline on each cell
+  ctx.strokeStyle = ZONE_COLORS_SOLID[activeZone];
+  ctx.lineWidth = 1;
+  for (let cell = 0; cell < 256; cell++) {
+    if (getBit(masks[activeZone], cell)) {
+      const col = cell % COLS;
+      const row = (cell / COLS) | 0;
+      ctx.strokeRect(offsetX + col*cellSize + 0.5, offsetY + row*cellSize + 0.5, cellSize-1, cellSize-1);
+    }
+  }
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 0.5;
+  for (let c = 0; c <= COLS; c++) {
+    ctx.beginPath();
+    ctx.moveTo(offsetX + c*cellSize, offsetY);
+    ctx.lineTo(offsetX + c*cellSize, offsetY + ROWS*cellSize);
+    ctx.stroke();
+  }
+  for (let r = 0; r <= ROWS; r++) {
+    ctx.beginPath();
+    ctx.moveTo(offsetX, offsetY + r*cellSize);
+    ctx.lineTo(offsetX + COLS*cellSize, offsetY + r*cellSize);
+    ctx.stroke();
+  }
+
+  // Row labels (Y axis)
+  ctx.fillStyle = 'rgba(148,163,184,0.7)';
+  ctx.font = `${Math.max(8, cellSize * 0.4)}px monospace`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (let r = 0; r < ROWS; r++) {
+    ctx.fillText(r, offsetX - 3, offsetY + r*cellSize + cellSize/2);
+  }
+
+  // Col labels (X axis)
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (let c = 0; c < COLS; c++) {
+    ctx.fillText(c, offsetX + c*cellSize + cellSize/2, offsetY + ROWS*cellSize + 3);
+  }
+
+  // Live targets
+  for (let i = 0; i < 3; i++) {
+    const t = targets[i];
+    if (!t.valid) continue;
+
+    const {col, row} = targetToCell(t.x, t.y);
+    const inGrid = col >= 0 && col < COLS && row >= 0 && row < ROWS;
+
+    let cx, cy;
+    if (inGrid) {
+      cx = offsetX + col*cellSize + cellSize/2;
+      cy = offsetY + row*cellSize + cellSize/2;
+    } else {
+      // Clamp to edge
+      const clampedCol = Math.max(0, Math.min(COLS-1, col));
+      const clampedRow = Math.max(0, Math.min(ROWS-1, row));
+      cx = offsetX + clampedCol*cellSize + cellSize/2;
+      cy = offsetY + clampedRow*cellSize + cellSize/2;
+    }
+
+    const alpha = inGrid ? 1.0 : 0.35;
+    const pulse = 0.6 + 0.4 * Math.sin(pulseT * 3 + i * 2.1);
+    const radius = Math.max(4, cellSize * 0.25) * (inGrid ? pulse : 1);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // Glow ring
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius * 2.2);
+    grad.addColorStop(0, TARGET_COLORS[i] + 'aa');
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * 2.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Core dot
+    ctx.fillStyle = TARGET_COLORS[i];
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Label
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${Math.max(8, cellSize * 0.35)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`T${i+1}`, cx, cy);
+
+    ctx.restore();
+  }
+
+  pulseT += 0.05;
+}
+
+function tick() {
+  draw();
+  animFrame = requestAnimationFrame(tick);
+}
+
+/* ────────────────────────────────────────────────────────────
+   Sidebar UI
+──────────────────────────────────────────────────────────── */
+function buildSidebar() {
+  const list = document.getElementById('zoneList');
+  list.innerHTML = '';
+  for (let z = 0; z < N_ZONES; z++) {
+    const row = document.createElement('div');
+    row.className = 'zone-row' + (z === activeZone ? ' active-zone' : '');
+    row.id = `zrow_${z}`;
+
+    const dot = document.createElement('div');
+    dot.className = 'zone-dot';
+    dot.style.background = ZONE_COLORS_SOLID[z];
+
+    const label = document.createElement('span');
+    label.className = 'zone-label';
+    label.textContent = ZONE_NAMES[z];
+
+    const count = document.createElement('span');
+    count.className = 'zone-count';
+    count.id = `zcount_${z}`;
+    count.textContent = countBits(masks[z]);
+
+    const vis = document.createElement('div');
+    vis.className = 'zone-vis' + (visible[z] ? ' on' : '');
+    vis.title = 'Toggle visibility';
+    vis.textContent = visible[z] ? '●' : '○';
+    vis.onclick = (e) => { e.stopPropagation(); toggleVis(z); };
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'save-zone-btn';
+    saveBtn.textContent = `Save Z${z+1}`;
+    saveBtn.onclick = (e) => { e.stopPropagation(); saveZone(z); };
+
+    row.appendChild(dot);
+    row.appendChild(label);
+    row.appendChild(count);
+    row.appendChild(vis);
+    row.onclick = () => selectZone(z);
+
+    list.appendChild(row);
+    list.appendChild(saveBtn);
+  }
+}
+
+function updateCounts() {
+  for (let z = 0; z < N_ZONES; z++) {
+    const el = document.getElementById(`zcount_${z}`);
+    if (el) el.textContent = countBits(masks[z]);
+  }
+}
+
+function selectZone(z) {
+  activeZone = z;
+  document.querySelectorAll('.zone-row').forEach((r, i) => {
+    r.classList.toggle('active-zone', i === z);
+  });
+}
+
+function toggleVis(z) {
+  visible[z] = !visible[z];
+  buildSidebar();
+}
+
+/* ────────────────────────────────────────────────────────────
+   Network helpers
+──────────────────────────────────────────────────────────── */
+function baseUrl() { return `http://${deviceIp}`; }
+
+async function apiFetch(path, opts) {
+  try {
+    const r = await fetch(baseUrl() + path, opts);
+    return r;
+  } catch(e) {
+    log('Network error: ' + e.message);
+    return null;
+  }
+}
+
+async function getTextSensor(name) {
+  const r = await apiFetch(`/text_sensor/${encodeURIComponent(name)}`);
+  if (!r || !r.ok) return null;
+  const j = await r.json();
+  return j.value || j.state || null;
+}
+
+async function getNumber(name) {
+  const r = await apiFetch(`/number/${encodeURIComponent(name)}`);
+  if (!r || !r.ok) return null;
+  const j = await r.json();
+  return parseFloat(j.value ?? j.state);
+}
+
+async function postText(name, value) {
+  const r = await apiFetch(`/text/${encodeURIComponent(name)}/set?value=${encodeURIComponent(value)}`, {method:'POST'});
+  return r && r.ok;
+}
+
+/* ────────────────────────────────────────────────────────────
+   Load / Save
+──────────────────────────────────────────────────────────── */
+async function loadAll() {
+  log('Loading all zone masks...');
+  const names = ['Zone 1 Mask','Zone 2 Mask','Zone 3 Mask','Zone 4 Mask','Zone 5 Mask'];
+  let ok = 0;
+  for (let z = 0; z < N_ZONES; z++) {
+    const hex = await getTextSensor(names[z]);
+    if (hex && hexToMask(hex, masks[z])) {
+      ok++;
+    } else {
+      log(`Warning: failed to load Zone ${z+1} mask`);
+    }
+  }
+  // Load grid bounds
+  await loadGridBounds();
+  updateCounts();
+  log(`Loaded ${ok}/5 zone masks.`);
+}
+
+async function loadGridBounds() {
+  const [xmin, xmax, ymin, ymax] = await Promise.all([
+    getNumber('Grid X Min'), getNumber('Grid X Max'),
+    getNumber('Grid Y Min'), getNumber('Grid Y Max'),
+  ]);
+  if (!isNaN(xmin)) gridXMin = xmin;
+  if (!isNaN(xmax)) gridXMax = xmax;
+  if (!isNaN(ymin)) gridYMin = ymin;
+  if (!isNaN(ymax)) gridYMax = ymax;
+  updateBoundsUI();
+}
+
+function updateBoundsUI() {
+  document.getElementById('bxstat').textContent = `X: ${gridXMin}..${gridXMax}`;
+  document.getElementById('bystat').textContent = `Y: ${gridYMin}..${gridYMax}`;
+}
+
+async function saveZone(z) {
+  const names = ['Zone 1 Mask Input','Zone 2 Mask Input','Zone 3 Mask Input','Zone 4 Mask Input','Zone 5 Mask Input'];
+  const hex = maskToHex(masks[z]);
+  log(`Saving Zone ${z+1}...`);
+  const ok = await postText(names[z], hex);
+  log(ok ? `Zone ${z+1} saved OK.` : `Zone ${z+1} save FAILED.`);
+}
+
+async function saveAll() {
+  for (let z = 0; z < N_ZONES; z++) {
+    await saveZone(z);
+  }
+  log('All zones saved.');
+}
+
+/* ────────────────────────────────────────────────────────────
+   SSE (real-time)
+──────────────────────────────────────────────────────────── */
+function connectSSE() {
+  if (sse) { sse.close(); sse = null; }
+  log('Connecting SSE...');
+  sse = new EventSource(`${baseUrl()}/events`);
+
+  sse.addEventListener('state', (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      handleStateEvent(d);
+    } catch(_) {}
+  });
+
+  sse.onopen = () => {
+    setConnected(true);
+    log('SSE connected — receiving live data.');
+  };
+
+  sse.onerror = () => {
+    setConnected(false);
+    log('SSE connection lost. Retrying...');
+  };
+}
+
+function handleStateEvent(d) {
+  const id = d.id || '';
+  const val = d.state ?? d.value ?? '';
+
+  // Target positions
+  const targetMap = {
+    'sensor-target_1_x': [0,'x'], 'sensor-target_1_y': [0,'y'], 'sensor-target_1_distance': [0,'distance'],
+    'sensor-target_2_x': [1,'x'], 'sensor-target_2_y': [1,'y'], 'sensor-target_2_distance': [1,'distance'],
+    'sensor-target_3_x': [2,'x'], 'sensor-target_3_y': [2,'y'], 'sensor-target_3_distance': [2,'distance'],
+  };
+
+  const tm = targetMap[id];
+  if (tm) {
+    const [ti, field] = tm;
+    const num = parseFloat(val);
+    if (!isNaN(num)) {
+      targets[ti][field] = num;
+      // Valid if distance > 0
+      targets[ti].valid = targets[ti].distance > 0;
+      updateTargetUI();
+    } else {
+      targets[ti].valid = false;
+      updateTargetUI();
+    }
+  }
+
+  // Grid bounds (live update if changed via HA)
+  if (id === 'number-grid_x_min_mm') { gridXMin = parseFloat(val); updateBoundsUI(); }
+  if (id === 'number-grid_x_max_mm') { gridXMax = parseFloat(val); updateBoundsUI(); }
+  if (id === 'number-grid_y_min_mm') { gridYMin = parseFloat(val); updateBoundsUI(); }
+  if (id === 'number-grid_y_max_mm') { gridYMax = parseFloat(val); updateBoundsUI(); }
+
+  // Zone masks (if updated from device side e.g. after learning)
+  const maskMap = {
+    'text_sensor-zone_1_mask': 0, 'text_sensor-zone_2_mask': 1,
+    'text_sensor-zone_3_mask': 2, 'text_sensor-zone_4_mask': 3,
+    'text_sensor-zone_5_mask': 4,
+  };
+  const zi = maskMap[id];
+  if (zi !== undefined && typeof val === 'string' && val.length === 64) {
+    hexToMask(val, masks[zi]);
+    updateCounts();
+  }
+}
+
+function updateTargetUI() {
+  for (let i = 0; i < 3; i++) {
+    const t = targets[i];
+    const el = document.getElementById(`t${i+1}stat`);
+    if (!el) continue;
+    if (t.valid) {
+      el.textContent = `T${i+1} x:${Math.round(t.x)} y:${Math.round(t.y)} d:${Math.round(t.distance)}`;
+    } else {
+      el.textContent = `T${i+1} —`;
+    }
+  }
+}
+
+/* ────────────────────────────────────────────────────────────
+   Connect
+──────────────────────────────────────────────────────────── */
+function connect() {
+  const ip = document.getElementById('ipInput').value.trim();
+  if (!ip) { log('Enter a device IP first.'); return; }
+  deviceIp = ip;
+  localStorage.setItem('ps02c3mz_ip', ip);
+  connectSSE();
+  // Eagerly load masks after short delay
+  setTimeout(() => {
+    loadAll();
+  }, 600);
+}
+
+function setConnected(val) {
+  connected = val;
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  dot.className = val ? 'ok' : 'err';
+  txt.textContent = val ? `Connected to ${deviceIp}` : 'Disconnected';
+  document.getElementById('loadBtn').disabled = !val;
+  document.getElementById('saveAllBtn').disabled = !val;
+  document.querySelectorAll('.save-zone-btn').forEach(b => b.disabled = !val);
+}
+
+/* ────────────────────────────────────────────────────────────
+   Mouse / Paint interaction
+──────────────────────────────────────────────────────────── */
+canvas.addEventListener('mousedown', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const px = e.clientX - rect.left;
+  const py = e.clientY - rect.top;
+  const cell = cellFromXY(px, py);
+  if (cell < 0) return;
+  e.preventDefault();
+
+  isPainting = true;
+  lastPaintedCell = cell;
+
+  if (e.button === 2) {
+    // Right click = erase
+    paintValue = false;
+    setBit(masks[activeZone], cell, false);
+  } else {
+    // Left click = toggle on first cell, then paint that value
+    const current = getBit(masks[activeZone], cell);
+    paintValue = current === 0; // if OFF, paint ON; if ON, paint OFF
+    setBit(masks[activeZone], cell, paintValue);
+  }
+  updateCounts();
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const px = e.clientX - rect.left;
+  const py = e.clientY - rect.top;
+  const cell = cellFromXY(px, py);
+
+  // Coord display
+  if (cell >= 0) {
+    const col = cell % COLS;
+    const row = (cell / COLS) | 0;
+    document.getElementById('coordText').textContent = `col:${col} row:${row} cell:${cell}`;
+  } else {
+    document.getElementById('coordText').textContent = '';
+  }
+
+  if (!isPainting || cell < 0 || cell === lastPaintedCell) return;
+  lastPaintedCell = cell;
+  setBit(masks[activeZone], cell, paintValue);
+  updateCounts();
+});
+
+canvas.addEventListener('mouseup', () => { isPainting = false; });
+canvas.addEventListener('mouseleave', () => { isPainting = false; document.getElementById('coordText').textContent = ''; });
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+/* ────────────────────────────────────────────────────────────
+   Resize
+──────────────────────────────────────────────────────────── */
+function onResize() {
+  computeGeometry();
+}
+window.addEventListener('resize', onResize);
+
+/* ────────────────────────────────────────────────────────────
+   Log
+──────────────────────────────────────────────────────────── */
+function log(msg) {
+  const el = document.getElementById('logText');
+  el.textContent = msg;
+  console.log('[zone-editor]', msg);
+}
+
+/* ────────────────────────────────────────────────────────────
+   Init
+──────────────────────────────────────────────────────────── */
+function init() {
+  // Restore last IP
+  const saved = localStorage.getItem('ps02c3mz_ip');
+  if (saved) document.getElementById('ipInput').value = saved;
+
+  computeGeometry();
+  buildSidebar();
+  setConnected(false);
+  tick();
+}
+
+init();
+</script>
+</body>
+</html>

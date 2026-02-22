@@ -1212,6 +1212,177 @@ text_sensor:
       name: "MAC Address"
       entity_category: diagnostic
 
+  - platform: template
+    name: "Zone 1 Mask"
+    id: zone_1_mask_txt
+    icon: "mdi:grid"
+    entity_category: diagnostic
+    update_interval: 2s
+    lambda: |-
+      char buf[65];
+      for (int i = 0; i < 8; i++) {
+        sprintf(buf + i * 8, "%08X", id(zone_masks)[0 * 8 + i]);
+      }
+      return {std::string(buf, 64)};
+
+  - platform: template
+    name: "Zone 2 Mask"
+    id: zone_2_mask_txt
+    icon: "mdi:grid"
+    entity_category: diagnostic
+    update_interval: 2s
+    lambda: |-
+      char buf[65];
+      for (int i = 0; i < 8; i++) {
+        sprintf(buf + i * 8, "%08X", id(zone_masks)[1 * 8 + i]);
+      }
+      return {std::string(buf, 64)};
+
+  - platform: template
+    name: "Zone 3 Mask"
+    id: zone_3_mask_txt
+    icon: "mdi:grid"
+    entity_category: diagnostic
+    update_interval: 2s
+    lambda: |-
+      char buf[65];
+      for (int i = 0; i < 8; i++) {
+        sprintf(buf + i * 8, "%08X", id(zone_masks)[2 * 8 + i]);
+      }
+      return {std::string(buf, 64)};
+
+  - platform: template
+    name: "Zone 4 Mask"
+    id: zone_4_mask_txt
+    icon: "mdi:grid"
+    entity_category: diagnostic
+    update_interval: 2s
+    lambda: |-
+      char buf[65];
+      for (int i = 0; i < 8; i++) {
+        sprintf(buf + i * 8, "%08X", id(zone_masks)[3 * 8 + i]);
+      }
+      return {std::string(buf, 64)};
+
+  - platform: template
+    name: "Zone 5 Mask"
+    id: zone_5_mask_txt
+    icon: "mdi:grid"
+    entity_category: diagnostic
+    update_interval: 2s
+    lambda: |-
+      char buf[65];
+      for (int i = 0; i < 8; i++) {
+        sprintf(buf + i * 8, "%08X", id(zone_masks)[4 * 8 + i]);
+      }
+      return {std::string(buf, 64)};
+
+text:
+  - platform: template
+    name: "Zone 1 Mask Input"
+    id: zone_1_mask_input
+    icon: "mdi:grid-large"
+    entity_category: config
+    optimistic: true
+    min_length: 64
+    max_length: 64
+    mode: text
+    set_action:
+      - lambda: |-
+          if (x.length() != 64) {
+            ESP_LOGW("mask", "Zone 1 mask input invalid length %d", (int)x.length());
+            return;
+          }
+          for (int i = 0; i < 8; i++) {
+            id(zone_masks)[0 * 8 + i] = strtoul(x.substr(i * 8, 8).c_str(), nullptr, 16);
+          }
+          id(zone_1_mask_txt).publish_state(x);
+          ESP_LOGI("mask", "Zone 1 mask updated via editor");
+
+  - platform: template
+    name: "Zone 2 Mask Input"
+    id: zone_2_mask_input
+    icon: "mdi:grid-large"
+    entity_category: config
+    optimistic: true
+    min_length: 64
+    max_length: 64
+    mode: text
+    set_action:
+      - lambda: |-
+          if (x.length() != 64) {
+            ESP_LOGW("mask", "Zone 2 mask input invalid length %d", (int)x.length());
+            return;
+          }
+          for (int i = 0; i < 8; i++) {
+            id(zone_masks)[1 * 8 + i] = strtoul(x.substr(i * 8, 8).c_str(), nullptr, 16);
+          }
+          id(zone_2_mask_txt).publish_state(x);
+          ESP_LOGI("mask", "Zone 2 mask updated via editor");
+
+  - platform: template
+    name: "Zone 3 Mask Input"
+    id: zone_3_mask_input
+    icon: "mdi:grid-large"
+    entity_category: config
+    optimistic: true
+    min_length: 64
+    max_length: 64
+    mode: text
+    set_action:
+      - lambda: |-
+          if (x.length() != 64) {
+            ESP_LOGW("mask", "Zone 3 mask input invalid length %d", (int)x.length());
+            return;
+          }
+          for (int i = 0; i < 8; i++) {
+            id(zone_masks)[2 * 8 + i] = strtoul(x.substr(i * 8, 8).c_str(), nullptr, 16);
+          }
+          id(zone_3_mask_txt).publish_state(x);
+          ESP_LOGI("mask", "Zone 3 mask updated via editor");
+
+  - platform: template
+    name: "Zone 4 Mask Input"
+    id: zone_4_mask_input
+    icon: "mdi:grid-large"
+    entity_category: config
+    optimistic: true
+    min_length: 64
+    max_length: 64
+    mode: text
+    set_action:
+      - lambda: |-
+          if (x.length() != 64) {
+            ESP_LOGW("mask", "Zone 4 mask input invalid length %d", (int)x.length());
+            return;
+          }
+          for (int i = 0; i < 8; i++) {
+            id(zone_masks)[3 * 8 + i] = strtoul(x.substr(i * 8, 8).c_str(), nullptr, 16);
+          }
+          id(zone_4_mask_txt).publish_state(x);
+          ESP_LOGI("mask", "Zone 4 mask updated via editor");
+
+  - platform: template
+    name: "Zone 5 Mask Input"
+    id: zone_5_mask_input
+    icon: "mdi:grid-large"
+    entity_category: config
+    optimistic: true
+    min_length: 64
+    max_length: 64
+    mode: text
+    set_action:
+      - lambda: |-
+          if (x.length() != 64) {
+            ESP_LOGW("mask", "Zone 5 mask input invalid length %d", (int)x.length());
+            return;
+          }
+          for (int i = 0; i < 8; i++) {
+            id(zone_masks)[4 * 8 + i] = strtoul(x.substr(i * 8, 8).c_str(), nullptr, 16);
+          }
+          id(zone_5_mask_txt).publish_state(x);
+          ESP_LOGI("mask", "Zone 5 mask updated via editor");
+
 button:
   - platform: ld2450
     ld2450_id: ld2450_radar
