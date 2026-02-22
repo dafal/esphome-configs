@@ -118,6 +118,26 @@ globals:
     type: float
     restore_value: false
     initial_value: '0'
+  - id: virtual_zone_last_seen_ms_1
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: virtual_zone_last_seen_ms_2
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: virtual_zone_last_seen_ms_3
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: virtual_zone_last_seen_ms_4
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: virtual_zone_last_seen_ms_5
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
 
 wifi:
   ssid: !secret wifi_ssid
@@ -186,11 +206,11 @@ interval:
   - interval: 100ms
     then:
       - lambda: |-
-          id(virtual_zone_presence_1) = false;
-          id(virtual_zone_presence_2) = false;
-          id(virtual_zone_presence_3) = false;
-          id(virtual_zone_presence_4) = false;
-          id(virtual_zone_presence_5) = false;
+          bool detected_zone_1 = false;
+          bool detected_zone_2 = false;
+          bool detected_zone_3 = false;
+          bool detected_zone_4 = false;
+          bool detected_zone_5 = false;
 
           if (id(learning_active)) {
             const uint32_t now = millis();
@@ -314,11 +334,11 @@ interval:
               }
 
               if (zone_match) {
-                if (zone == 0) id(virtual_zone_presence_1) = true;
-                if (zone == 1) id(virtual_zone_presence_2) = true;
-                if (zone == 2) id(virtual_zone_presence_3) = true;
-                if (zone == 3) id(virtual_zone_presence_4) = true;
-                if (zone == 4) id(virtual_zone_presence_5) = true;
+                if (zone == 0) detected_zone_1 = true;
+                if (zone == 1) detected_zone_2 = true;
+                if (zone == 2) detected_zone_3 = true;
+                if (zone == 3) detected_zone_4 = true;
+                if (zone == 4) detected_zone_5 = true;
               }
             }
 
@@ -334,6 +354,33 @@ interval:
           apply_cell(id(target_1_x).state, id(target_1_y).state, id(target_1_distance).state);
           apply_cell(id(target_2_x).state, id(target_2_y).state, id(target_2_distance).state);
           apply_cell(id(target_3_x).state, id(target_3_y).state, id(target_3_distance).state);
+
+          float off_delay_s = id(virtual_zone_off_delay_s).state;
+          if (isnan(off_delay_s) || off_delay_s < 0.0f) {
+            off_delay_s = 0.0f;
+          }
+          if (off_delay_s > 60.0f) {
+            off_delay_s = 60.0f;
+          }
+          const uint32_t off_delay_ms = static_cast<uint32_t>(off_delay_s * 1000.0f);
+          const uint32_t now_ms = millis();
+
+          auto apply_off_delay = [&](bool detected_now, uint32_t &last_seen_ms) -> bool {
+            if (detected_now) {
+              last_seen_ms = now_ms;
+              return true;
+            }
+            if (off_delay_ms == 0 || last_seen_ms == 0) {
+              return false;
+            }
+            return (now_ms - last_seen_ms) <= off_delay_ms;
+          };
+
+          id(virtual_zone_presence_1) = apply_off_delay(detected_zone_1, id(virtual_zone_last_seen_ms_1));
+          id(virtual_zone_presence_2) = apply_off_delay(detected_zone_2, id(virtual_zone_last_seen_ms_2));
+          id(virtual_zone_presence_3) = apply_off_delay(detected_zone_3, id(virtual_zone_last_seen_ms_3));
+          id(virtual_zone_presence_4) = apply_off_delay(detected_zone_4, id(virtual_zone_last_seen_ms_4));
+          id(virtual_zone_presence_5) = apply_off_delay(detected_zone_5, id(virtual_zone_last_seen_ms_5));
 
           id(vzone_presence_1).publish_state(id(virtual_zone_presence_1));
           id(vzone_presence_2).publish_state(id(virtual_zone_presence_2));
@@ -636,6 +683,19 @@ number:
     max_value: 2
     step: 1
     initial_value: 1
+    restore_value: true
+
+  - platform: template
+    name: "Virtual Zone Off Delay"
+    id: virtual_zone_off_delay_s
+    icon: "mdi:timer-off-outline"
+    unit_of_measurement: "s"
+    entity_category: config
+    optimistic: true
+    min_value: 0
+    max_value: 60
+    step: 1
+    initial_value: 2
     restore_value: true
 
   - platform: template
