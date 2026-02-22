@@ -79,13 +79,13 @@ globals:
     restore_value: false
     initial_value: 'false'
   - id: zone_masks
-    type: uint32_t[40]
+    type: std::array<uint32_t, 40>
     restore_value: true
-    initial_value: '{0}'
+    initial_value: 'std::array<uint32_t, 40>{}'
   - id: learning_hits
-    type: uint16_t[256]
+    type: std::array<uint16_t, 256>
     restore_value: false
-    initial_value: '{0}'
+    initial_value: 'std::array<uint16_t, 256>{}'
 
 wifi:
   ssid: !secret wifi_ssid
