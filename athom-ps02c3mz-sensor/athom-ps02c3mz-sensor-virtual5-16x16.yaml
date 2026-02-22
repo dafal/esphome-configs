@@ -86,6 +86,38 @@ globals:
     type: std::array<uint16_t, 256>
     restore_value: false
     initial_value: 'std::array<uint16_t, 256>{}'
+  - id: room_learning_active
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: room_learning_has_samples
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: room_learning_sample_count
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: room_learning_started_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: room_learned_min_x
+    type: float
+    restore_value: false
+    initial_value: '0'
+  - id: room_learned_max_x
+    type: float
+    restore_value: false
+    initial_value: '0'
+  - id: room_learned_min_y
+    type: float
+    restore_value: false
+    initial_value: '0'
+  - id: room_learned_max_y
+    type: float
+    restore_value: false
+    initial_value: '0'
 
 wifi:
   ssid: !secret wifi_ssid
@@ -172,6 +204,18 @@ interval:
             }
           }
 
+          if (id(room_learning_active)) {
+            const uint32_t now = millis();
+            const float duration_s = id(room_learning_duration_s).state;
+            if (!isnan(duration_s) && duration_s > 0.0f) {
+              const uint32_t duration_ms = static_cast<uint32_t>(duration_s * 1000.0f);
+              if (now - id(room_learning_started_ms) >= duration_ms) {
+                id(room_learning_active) = false;
+                ESP_LOGI("room", "Room bounds learning finished with %d samples", id(room_learning_sample_count));
+              }
+            }
+          }
+
           auto map_to_cell = [&](float x, float y) -> int {
             const float min_x = id(grid_x_min_mm).state;
             const float max_x = id(grid_x_max_mm).state;
@@ -206,6 +250,25 @@ interval:
           auto apply_cell = [&](float x, float y, float distance) {
             if (isnan(x) || isnan(y) || isnan(distance) || distance <= 0.0f) {
               return;
+            }
+
+            if (id(room_learning_active)) {
+              if (x < -6000.0f || x > 6000.0f || y < 0.0f || y > 6000.0f) {
+                return;
+              }
+              if (!id(room_learning_has_samples)) {
+                id(room_learned_min_x) = x;
+                id(room_learned_max_x) = x;
+                id(room_learned_min_y) = y;
+                id(room_learned_max_y) = y;
+                id(room_learning_has_samples) = true;
+              } else {
+                if (x < id(room_learned_min_x)) id(room_learned_min_x) = x;
+                if (x > id(room_learned_max_x)) id(room_learned_max_x) = x;
+                if (y < id(room_learned_min_y)) id(room_learned_min_y) = y;
+                if (y > id(room_learned_max_y)) id(room_learned_max_y) = y;
+              }
+              id(room_learning_sample_count) += 1;
             }
 
             const int cell = map_to_cell(x, y);
@@ -308,6 +371,8 @@ script:
     mode: restart
     then:
       - lambda: |-
+          id(room_learning_active) = false;
+
           for (int i = 0; i < 256; i++) {
             id(learning_hits)[i] = 0;
           }
@@ -402,6 +467,78 @@ script:
             id(zone_masks)[i] = 0;
           }
           ESP_LOGI("vzone", "Cleared all virtual zones");
+
+  - id: start_room_bounds_learning
+    mode: restart
+    then:
+      - lambda: |-
+          id(learning_active) = false;
+          id(room_learning_active) = true;
+          id(room_learning_has_samples) = false;
+          id(room_learning_sample_count) = 0;
+          id(room_learning_started_ms) = millis();
+          ESP_LOGI("room", "Started room bounds learning");
+
+  - id: discard_room_bounds_learning
+    mode: restart
+    then:
+      - lambda: |-
+          id(room_learning_active) = false;
+          id(room_learning_has_samples) = false;
+          id(room_learning_sample_count) = 0;
+          ESP_LOGI("room", "Discarded room bounds learning");
+
+  - id: apply_room_bounds_learning
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return id(room_learning_has_samples) &&
+                     id(room_learning_sample_count) >= static_cast<int>(id(room_learning_min_samples).state);
+          then:
+            - lambda: |-
+                id(room_learning_active) = false;
+                ESP_LOGI(
+                  "room",
+                  "Applying learned room bounds x[%.0f,%.0f] y[%.0f,%.0f] samples=%d",
+                  id(room_learned_min_x), id(room_learned_max_x),
+                  id(room_learned_min_y), id(room_learned_max_y),
+                  id(room_learning_sample_count)
+                );
+            - number.set:
+                id: grid_x_min_mm
+                value: !lambda |-
+                  float v = id(room_learned_min_x) - id(room_bounds_margin_mm).state;
+                  if (v < -6000.0f) v = -6000.0f;
+                  if (v > 6000.0f) v = 6000.0f;
+                  return v;
+            - number.set:
+                id: grid_x_max_mm
+                value: !lambda |-
+                  float v = id(room_learned_max_x) + id(room_bounds_margin_mm).state;
+                  if (v < -6000.0f) v = -6000.0f;
+                  if (v > 6000.0f) v = 6000.0f;
+                  return v;
+            - number.set:
+                id: grid_y_min_mm
+                value: !lambda |-
+                  float v = id(room_learned_min_y) - id(room_bounds_margin_mm).state;
+                  if (v < 0.0f) v = 0.0f;
+                  if (v > 6000.0f) v = 6000.0f;
+                  return v;
+            - number.set:
+                id: grid_y_max_mm
+                value: !lambda |-
+                  float v = id(room_learned_max_y) + id(room_bounds_margin_mm).state;
+                  if (v < 0.0f) v = 0.0f;
+                  if (v > 6000.0f) v = 6000.0f;
+                  return v;
+          else:
+            - logger.log:
+                level: WARN
+                format: "Room learning data too small to apply (samples=%d)"
+                args: ['id(room_learning_sample_count)']
 
 select:
   - platform: template
@@ -499,6 +636,44 @@ number:
     max_value: 2
     step: 1
     initial_value: 1
+    restore_value: true
+
+  - platform: template
+    name: "Room Learning Duration"
+    id: room_learning_duration_s
+    icon: "mdi:timer-outline"
+    unit_of_measurement: "s"
+    entity_category: config
+    optimistic: true
+    min_value: 5
+    max_value: 120
+    step: 1
+    initial_value: 30
+    restore_value: true
+
+  - platform: template
+    name: "Room Bounds Margin"
+    id: room_bounds_margin_mm
+    icon: "mdi:border-all-variant"
+    unit_of_measurement: "mm"
+    entity_category: config
+    optimistic: true
+    min_value: 0
+    max_value: 1000
+    step: 50
+    initial_value: 200
+    restore_value: true
+
+  - platform: template
+    name: "Room Learning Min Samples"
+    id: room_learning_min_samples
+    icon: "mdi:counter"
+    entity_category: config
+    optimistic: true
+    min_value: 1
+    max_value: 1000
+    step: 1
+    initial_value: 20
     restore_value: true
 
   - platform: template
@@ -910,6 +1085,45 @@ text_sensor:
       return {buffer};
 
   - platform: template
+    name: "Room Bounds Learning Status"
+    icon: "mdi:floor-plan"
+    entity_category: diagnostic
+    update_interval: 1s
+    lambda: |-
+      if (id(room_learning_active)) {
+        char buffer[64];
+        snprintf(buffer, sizeof(buffer), "capturing room (%d)", id(room_learning_sample_count));
+        return {buffer};
+      }
+      if (id(room_learning_has_samples)) {
+        char buffer[64];
+        snprintf(buffer, sizeof(buffer), "ready room (%d samples)", id(room_learning_sample_count));
+        return {buffer};
+      }
+      return {"idle"};
+
+  - platform: template
+    name: "Learned Room Bounds"
+    icon: "mdi:vector-rectangle"
+    entity_category: diagnostic
+    update_interval: 1s
+    lambda: |-
+      if (!id(room_learning_has_samples)) {
+        return {"n/a"};
+      }
+      char buffer[96];
+      snprintf(
+        buffer,
+        sizeof(buffer),
+        "x:[%.0f,%.0f] y:[%.0f,%.0f]",
+        id(room_learned_min_x),
+        id(room_learned_max_x),
+        id(room_learned_min_y),
+        id(room_learned_max_y)
+      );
+      return {buffer};
+
+  - platform: template
     name: "Virtual Grid Bounds"
     icon: "mdi:vector-rectangle"
     entity_category: diagnostic
@@ -987,6 +1201,30 @@ button:
     on_press:
       then:
         - script.execute: clear_all_virtual_zones
+
+  - platform: template
+    name: "Start Room Bounds Learning"
+    icon: "mdi:record-circle-outline"
+    entity_category: config
+    on_press:
+      then:
+        - script.execute: start_room_bounds_learning
+
+  - platform: template
+    name: "Apply Room Bounds"
+    icon: "mdi:check-circle-outline"
+    entity_category: config
+    on_press:
+      then:
+        - script.execute: apply_room_bounds_learning
+
+  - platform: template
+    name: "Discard Room Bounds"
+    icon: "mdi:close-circle-outline"
+    entity_category: config
+    on_press:
+      then:
+        - script.execute: discard_room_bounds_learning
 
   - platform: factory_reset
     name: "Restart with Factory Default Settings"
