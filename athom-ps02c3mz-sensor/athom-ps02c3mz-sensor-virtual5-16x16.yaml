@@ -1,0 +1,894 @@
+substitutions:
+  device_name: athom-ps02c3mz-virtual5-16x16
+  friendly_name: PS02C3MZ Virtual Zones 5x16x16
+  project_name: dafal_esphome-configs.athom_ps02c3mz_virtual5_16x16
+  project_version: 1.0.0
+  area: ""
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  project:
+    name: ${project_name}
+    version: ${project_version}
+  area: ${area}
+  platformio_options:
+    board_build.flash_mode: dio
+  on_boot:
+    priority: -100
+    then:
+      - delay: 1s
+      - script.execute: restore_ble_mode
+
+esp32:
+  board: esp32-c3-devkitm-1
+  flash_size: 4MB
+  variant: esp32c3
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      COMPILER_OPTIMIZATION_SIZE: y
+
+preferences:
+  flash_write_interval: 5min
+
+globals:
+  - id: learning_active
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: learning_has_samples
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: learning_zone
+    type: int
+    restore_value: true
+    initial_value: '1'
+  - id: learning_sample_count
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: learning_started_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: learning_last_applied_cells
+    type: int
+    restore_value: false
+    initial_value: '0'
+  - id: virtual_zone_presence_1
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: virtual_zone_presence_2
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: virtual_zone_presence_3
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: virtual_zone_presence_4
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: virtual_zone_presence_5
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: zone_masks
+    type: uint32_t[40]
+    restore_value: true
+    initial_value: '{0}'
+  - id: learning_hits
+    type: uint16_t[256]
+    restore_value: false
+    initial_value: '{0}'
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "esphome"
+    password: !secret fallback_password
+  on_connect:
+    - logger.log: "WiFi connected"
+  on_disconnect:
+    - logger.log: "WiFi disconnected"
+
+captive_portal:
+
+mdns:
+  disabled: false
+
+api:
+  reboot_timeout: 0s
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+web_server:
+  port: 80
+  version: 3
+  log: true
+
+logger:
+  level: DEBUG
+  baud_rate: 115200
+
+esp32_ble_tracker:
+  id: ble_tracker
+  scan_parameters:
+    continuous: false
+    active: false
+
+bluetooth_proxy:
+  active: true
+
+esp32_improv:
+  authorizer: none
+
+i2c:
+  sda: GPIO18
+  scl: GPIO19
+  scan: true
+
+uart:
+  id: uart_ld2450
+  tx_pin: GPIO8
+  rx_pin: GPIO5
+  baud_rate: 256000
+  parity: NONE
+  stop_bits: 1
+
+ld2450:
+  id: ld2450_radar
+  uart_id: uart_ld2450
+
+interval:
+  - interval: 250ms
+    then:
+      - lambda: |-
+          id(virtual_zone_presence_1) = false;
+          id(virtual_zone_presence_2) = false;
+          id(virtual_zone_presence_3) = false;
+          id(virtual_zone_presence_4) = false;
+          id(virtual_zone_presence_5) = false;
+
+          if (id(learning_active)) {
+            const uint32_t now = millis();
+            const float duration_s = id(learning_duration_s).state;
+            if (!isnan(duration_s) && duration_s > 0.0f) {
+              const uint32_t duration_ms = static_cast<uint32_t>(duration_s * 1000.0f);
+              if (now - id(learning_started_ms) >= duration_ms) {
+                id(learning_active) = false;
+                ESP_LOGI("vzone", "Learning capture finished with %d samples", id(learning_sample_count));
+              }
+            }
+          }
+
+          auto map_to_cell = [&](float x, float y) -> int {
+            const float min_x = id(grid_x_min_mm).state;
+            const float max_x = id(grid_x_max_mm).state;
+            const float min_y = id(grid_y_min_mm).state;
+            const float max_y = id(grid_y_max_mm).state;
+
+            if (isnan(min_x) || isnan(max_x) || isnan(min_y) || isnan(max_y)) {
+              return -1;
+            }
+            if (max_x <= min_x || max_y <= min_y) {
+              return -1;
+            }
+            if (x < min_x || x > max_x || y < min_y || y > max_y) {
+              return -1;
+            }
+
+            float x_ratio = (x - min_x) / (max_x - min_x);
+            float y_ratio = (y - min_y) / (max_y - min_y);
+            if (x_ratio < 0.0f) x_ratio = 0.0f;
+            if (x_ratio > 1.0f) x_ratio = 1.0f;
+            if (y_ratio < 0.0f) y_ratio = 0.0f;
+            if (y_ratio > 1.0f) y_ratio = 1.0f;
+
+            int col = static_cast<int>(x_ratio * 16.0f);
+            int row = static_cast<int>(y_ratio * 16.0f);
+            if (col > 15) col = 15;
+            if (row > 15) row = 15;
+
+            return row * 16 + col;
+          };
+
+          auto apply_cell = [&](float x, float y, float distance) {
+            if (isnan(x) || isnan(y) || isnan(distance) || distance <= 0.0f) {
+              return;
+            }
+
+            const int cell = map_to_cell(x, y);
+            if (cell < 0 || cell > 255) {
+              return;
+            }
+
+            const int word = cell / 32;
+            const uint32_t bit = 1UL << (cell % 32);
+
+            for (int zone = 0; zone < 5; zone++) {
+              const int offset = zone * 8;
+              if ((id(zone_masks)[offset + word] & bit) != 0U) {
+                if (zone == 0) id(virtual_zone_presence_1) = true;
+                if (zone == 1) id(virtual_zone_presence_2) = true;
+                if (zone == 2) id(virtual_zone_presence_3) = true;
+                if (zone == 3) id(virtual_zone_presence_4) = true;
+                if (zone == 4) id(virtual_zone_presence_5) = true;
+              }
+            }
+
+            if (id(learning_active)) {
+              if (id(learning_hits)[cell] < 65535) {
+                id(learning_hits)[cell] += 1;
+              }
+              id(learning_sample_count) += 1;
+              id(learning_has_samples) = true;
+            }
+          };
+
+          apply_cell(id(target_1_x).state, id(target_1_y).state, id(target_1_distance).state);
+          apply_cell(id(target_2_x).state, id(target_2_y).state, id(target_2_distance).state);
+          apply_cell(id(target_3_x).state, id(target_3_y).state, id(target_3_distance).state);
+
+script:
+  - id: ble_mode_disabled
+    mode: restart
+    then:
+      - esp32_ble_tracker.stop_scan:
+      - logger.log: "BLE scan disabled"
+
+  - id: ble_mode_passive
+    mode: restart
+    then:
+      - esp32_ble_tracker.stop_scan:
+      - esp32_ble_tracker.start_scan:
+          continuous: true
+      - logger.log: "BLE scan passive (continuous)"
+
+  - id: restore_ble_mode
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return id(ble_scan_mode).current_option() == "Passive";'
+          then:
+            - script.execute: ble_mode_passive
+          else:
+            - script.execute: ble_mode_disabled
+
+  - id: start_zone_learning
+    mode: restart
+    then:
+      - lambda: |-
+          for (int i = 0; i < 256; i++) {
+            id(learning_hits)[i] = 0;
+          }
+
+          const int zone_index = id(learning_zone) - 1;
+          const int offset = zone_index * 8;
+          for (int i = 0; i < 8; i++) {
+            id(zone_masks)[offset + i] = 0;
+          }
+
+          id(learning_active) = true;
+          id(learning_has_samples) = false;
+          id(learning_sample_count) = 0;
+          id(learning_last_applied_cells) = 0;
+          id(learning_started_ms) = millis();
+          ESP_LOGI("vzone", "Started REPLACE learning for Virtual Zone %d", id(learning_zone));
+
+  - id: discard_zone_learning
+    mode: restart
+    then:
+      - lambda: |-
+          id(learning_active) = false;
+          id(learning_has_samples) = false;
+          id(learning_sample_count) = 0;
+          for (int i = 0; i < 256; i++) {
+            id(learning_hits)[i] = 0;
+          }
+          ESP_LOGI("vzone", "Discarded learning buffer");
+
+  - id: apply_learned_zone
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return id(learning_has_samples) &&
+                     id(learning_sample_count) >= static_cast<int>(id(learning_min_samples).state);
+          then:
+            - lambda: |-
+                id(learning_active) = false;
+
+                const int zone_index = id(learning_zone) - 1;
+                const int offset = zone_index * 8;
+                const int threshold = static_cast<int>(id(learning_hit_threshold).state);
+
+                for (int i = 0; i < 8; i++) {
+                  id(zone_masks)[offset + i] = 0;
+                }
+
+                int active_cells = 0;
+                for (int cell = 0; cell < 256; cell++) {
+                  if (id(learning_hits)[cell] >= threshold) {
+                    const int word = cell / 32;
+                    const uint32_t bit = 1UL << (cell % 32);
+                    id(zone_masks)[offset + word] |= bit;
+                    active_cells += 1;
+                  }
+                }
+
+                id(learning_last_applied_cells) = active_cells;
+
+                ESP_LOGI(
+                  "vzone",
+                  "Applied Virtual Zone %d with %d cells (%d samples, threshold=%d)",
+                  id(learning_zone),
+                  active_cells,
+                  id(learning_sample_count),
+                  threshold
+                );
+          else:
+            - logger.log:
+                level: WARN
+                format: "Learning data too small to apply (samples=%d)"
+                args: ['id(learning_sample_count)']
+
+  - id: clear_selected_virtual_zone
+    mode: restart
+    then:
+      - lambda: |-
+          const int zone_index = id(learning_zone) - 1;
+          const int offset = zone_index * 8;
+          for (int i = 0; i < 8; i++) {
+            id(zone_masks)[offset + i] = 0;
+          }
+          ESP_LOGI("vzone", "Cleared Virtual Zone %d", id(learning_zone));
+
+  - id: clear_all_virtual_zones
+    mode: restart
+    then:
+      - lambda: |-
+          for (int i = 0; i < 40; i++) {
+            id(zone_masks)[i] = 0;
+          }
+          ESP_LOGI("vzone", "Cleared all virtual zones");
+
+select:
+  - platform: template
+    name: "Bluetooth Scanner Mode"
+    id: ble_scan_mode
+    icon: "mdi:bluetooth"
+    entity_category: config
+    optimistic: true
+    options:
+      - "Disabled"
+      - "Passive"
+    initial_option: "Disabled"
+    restore_value: true
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return x == "Disabled";'
+            then:
+              - script.execute: ble_mode_disabled
+        - if:
+            condition:
+              lambda: 'return x == "Passive";'
+            then:
+              - script.execute: ble_mode_passive
+
+  - platform: template
+    name: "Virtual Zone Learning Target"
+    id: virtual_zone_learning_target
+    icon: "mdi:grid"
+    entity_category: config
+    optimistic: true
+    options:
+      - "Zone 1"
+      - "Zone 2"
+      - "Zone 3"
+      - "Zone 4"
+      - "Zone 5"
+    initial_option: "Zone 1"
+    restore_value: true
+    on_value:
+      then:
+        - lambda: |-
+            if (x == "Zone 1") id(learning_zone) = 1;
+            else if (x == "Zone 2") id(learning_zone) = 2;
+            else if (x == "Zone 3") id(learning_zone) = 3;
+            else if (x == "Zone 4") id(learning_zone) = 4;
+            else id(learning_zone) = 5;
+
+number:
+  - platform: template
+    name: "Learning Duration"
+    id: learning_duration_s
+    icon: "mdi:timer-outline"
+    unit_of_measurement: "s"
+    entity_category: config
+    optimistic: true
+    min_value: 5
+    max_value: 60
+    step: 1
+    initial_value: 15
+    restore_value: true
+
+  - platform: template
+    name: "Learning Hit Threshold"
+    id: learning_hit_threshold
+    icon: "mdi:filter-outline"
+    entity_category: config
+    optimistic: true
+    min_value: 1
+    max_value: 20
+    step: 1
+    initial_value: 2
+    restore_value: true
+
+  - platform: template
+    name: "Learning Min Samples"
+    id: learning_min_samples
+    icon: "mdi:counter"
+    entity_category: config
+    optimistic: true
+    min_value: 1
+    max_value: 500
+    step: 1
+    initial_value: 10
+    restore_value: true
+
+  - platform: template
+    name: "Grid X Min"
+    id: grid_x_min_mm
+    unit_of_measurement: "mm"
+    icon: "mdi:arrow-left-bold"
+    entity_category: config
+    optimistic: true
+    min_value: -6000
+    max_value: 6000
+    step: 50
+    initial_value: -6000
+    restore_value: true
+
+  - platform: template
+    name: "Grid X Max"
+    id: grid_x_max_mm
+    unit_of_measurement: "mm"
+    icon: "mdi:arrow-right-bold"
+    entity_category: config
+    optimistic: true
+    min_value: -6000
+    max_value: 6000
+    step: 50
+    initial_value: 6000
+    restore_value: true
+
+  - platform: template
+    name: "Grid Y Min"
+    id: grid_y_min_mm
+    unit_of_measurement: "mm"
+    icon: "mdi:arrow-down-bold"
+    entity_category: config
+    optimistic: true
+    min_value: 0
+    max_value: 6000
+    step: 50
+    initial_value: 0
+    restore_value: true
+
+  - platform: template
+    name: "Grid Y Max"
+    id: grid_y_max_mm
+    unit_of_measurement: "mm"
+    icon: "mdi:arrow-up-bold"
+    entity_category: config
+    optimistic: true
+    min_value: 0
+    max_value: 6000
+    step: 50
+    initial_value: 6000
+    restore_value: true
+
+  - platform: ld2450
+    ld2450_id: ld2450_radar
+    presence_timeout:
+      name: "Presence Timeout"
+
+sensor:
+  - platform: ld2450
+    ld2450_id: ld2450_radar
+    target_count:
+      name: "Presence Target Count"
+      id: target_count
+    still_target_count:
+      name: "Still Target Count"
+      id: still_target_count
+    moving_target_count:
+      name: "Moving Target Count"
+      id: moving_target_count
+    target_1:
+      x:
+        name: "Target 1 X"
+        id: target_1_x
+      y:
+        name: "Target 1 Y"
+        id: target_1_y
+      distance:
+        name: "Target 1 Distance"
+        id: target_1_distance
+      speed:
+        name: "Target 1 Speed"
+        id: target_1_speed
+    target_2:
+      x:
+        name: "Target 2 X"
+        id: target_2_x
+      y:
+        name: "Target 2 Y"
+        id: target_2_y
+      distance:
+        name: "Target 2 Distance"
+        id: target_2_distance
+      speed:
+        name: "Target 2 Speed"
+        id: target_2_speed
+    target_3:
+      x:
+        name: "Target 3 X"
+        id: target_3_x
+      y:
+        name: "Target 3 Y"
+        id: target_3_y
+      distance:
+        name: "Target 3 Distance"
+        id: target_3_distance
+      speed:
+        name: "Target 3 Speed"
+        id: target_3_speed
+
+  - platform: template
+    name: "Virtual Zone 1 Active Cells"
+    lambda: |-
+      int count = 0;
+      for (int cell = 0; cell < 256; cell++) {
+        const int word = cell / 32;
+        const uint32_t bit = 1UL << (cell % 32);
+        if ((id(zone_masks)[word] & bit) != 0U) count++;
+      }
+      return count;
+    update_interval: 2s
+    entity_category: diagnostic
+
+  - platform: template
+    name: "Virtual Zone 2 Active Cells"
+    lambda: |-
+      int count = 0;
+      for (int cell = 0; cell < 256; cell++) {
+        const int word = cell / 32;
+        const uint32_t bit = 1UL << (cell % 32);
+        if ((id(zone_masks)[8 + word] & bit) != 0U) count++;
+      }
+      return count;
+    update_interval: 2s
+    entity_category: diagnostic
+
+  - platform: template
+    name: "Virtual Zone 3 Active Cells"
+    lambda: |-
+      int count = 0;
+      for (int cell = 0; cell < 256; cell++) {
+        const int word = cell / 32;
+        const uint32_t bit = 1UL << (cell % 32);
+        if ((id(zone_masks)[16 + word] & bit) != 0U) count++;
+      }
+      return count;
+    update_interval: 2s
+    entity_category: diagnostic
+
+  - platform: template
+    name: "Virtual Zone 4 Active Cells"
+    lambda: |-
+      int count = 0;
+      for (int cell = 0; cell < 256; cell++) {
+        const int word = cell / 32;
+        const uint32_t bit = 1UL << (cell % 32);
+        if ((id(zone_masks)[24 + word] & bit) != 0U) count++;
+      }
+      return count;
+    update_interval: 2s
+    entity_category: diagnostic
+
+  - platform: template
+    name: "Virtual Zone 5 Active Cells"
+    lambda: |-
+      int count = 0;
+      for (int cell = 0; cell < 256; cell++) {
+        const int word = cell / 32;
+        const uint32_t bit = 1UL << (cell % 32);
+        if ((id(zone_masks)[32 + word] & bit) != 0U) count++;
+      }
+      return count;
+    update_interval: 2s
+    entity_category: diagnostic
+
+  - platform: bh1750
+    name: "Light Sensor"
+    id: bh1750_sensor
+    address: 0x23
+    update_interval: 5s
+
+  - platform: wifi_signal
+    name: "WiFi Signal dB"
+    id: wifi_signal_db
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: copy
+    source_id: wifi_signal_db
+    name: "WiFi Signal Percent"
+    unit_of_measurement: "Signal %"
+    entity_category: diagnostic
+    device_class: ""
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+
+  - platform: uptime
+    name: "Uptime"
+    icon: "mdi:clock-outline"
+    entity_category: diagnostic
+    update_interval: 60s
+
+binary_sensor:
+  - platform: ld2450
+    ld2450_id: ld2450_radar
+    has_target:
+      name: "Presence"
+    has_moving_target:
+      name: "Moving Target"
+    has_still_target:
+      name: "Still Target"
+
+  - platform: template
+    name: "Virtual Zone 1 Presence"
+    device_class: occupancy
+    lambda: |-
+      return id(virtual_zone_presence_1);
+
+  - platform: template
+    name: "Virtual Zone 2 Presence"
+    device_class: occupancy
+    lambda: |-
+      return id(virtual_zone_presence_2);
+
+  - platform: template
+    name: "Virtual Zone 3 Presence"
+    device_class: occupancy
+    lambda: |-
+      return id(virtual_zone_presence_3);
+
+  - platform: template
+    name: "Virtual Zone 4 Presence"
+    device_class: occupancy
+    lambda: |-
+      return id(virtual_zone_presence_4);
+
+  - platform: template
+    name: "Virtual Zone 5 Presence"
+    device_class: occupancy
+    lambda: |-
+      return id(virtual_zone_presence_5);
+
+  - platform: template
+    name: "Zone Learning Running"
+    device_class: running
+    entity_category: diagnostic
+    lambda: |-
+      return id(learning_active);
+
+  - platform: status
+    name: "Status"
+    entity_category: diagnostic
+
+  - platform: gpio
+    pin:
+      number: GPIO9
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Button"
+    disabled_by_default: true
+    on_multi_click:
+      - timing:
+          - ON for at least 4s
+        then:
+          - button.press: factory_reset_btn
+
+  - platform: gpio
+    pin:
+      number: GPIO3
+      mode:
+        input: true
+        pullup: true
+    name: "PIR Sensor"
+    id: pir
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 10s
+    device_class: motion
+
+switch:
+  - platform: ld2450
+    ld2450_id: ld2450_radar
+    bluetooth:
+      name: "LD2450 Bluetooth"
+    multi_target:
+      name: "Multi Target Tracking"
+
+light:
+  - platform: status_led
+    name: "Status LED"
+    disabled_by_default: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      number: GPIO2
+      inverted: true
+
+text_sensor:
+  - platform: ld2450
+    ld2450_id: ld2450_radar
+    version:
+      name: "LD2450 Firmware"
+    mac_address:
+      name: "LD2450 BT MAC"
+
+  - platform: template
+    name: "Active Virtual Zone"
+    icon: "mdi:grid"
+    update_interval: 1s
+    lambda: |-
+      const bool z1 = id(virtual_zone_presence_1);
+      const bool z2 = id(virtual_zone_presence_2);
+      const bool z3 = id(virtual_zone_presence_3);
+      const bool z4 = id(virtual_zone_presence_4);
+      const bool z5 = id(virtual_zone_presence_5);
+      const int active = (z1 ? 1 : 0) + (z2 ? 1 : 0) + (z3 ? 1 : 0) + (z4 ? 1 : 0) + (z5 ? 1 : 0);
+      if (active == 0) return {"none"};
+      if (active > 1) return {"multiple"};
+      if (z1) return {"zone_1"};
+      if (z2) return {"zone_2"};
+      if (z3) return {"zone_3"};
+      if (z4) return {"zone_4"};
+      return {"zone_5"};
+
+  - platform: template
+    name: "Zone Learning Status"
+    icon: "mdi:school"
+    entity_category: diagnostic
+    update_interval: 1s
+    lambda: |-
+      if (id(learning_active)) {
+        char buffer[56];
+        snprintf(buffer, sizeof(buffer), "capturing zone_%d (%d)", id(learning_zone), id(learning_sample_count));
+        return {buffer};
+      }
+      if (id(learning_has_samples)) {
+        char buffer[64];
+        snprintf(buffer, sizeof(buffer), "ready zone_%d (%d samples)", id(learning_zone), id(learning_sample_count));
+        return {buffer};
+      }
+      return {"idle"};
+
+  - platform: template
+    name: "Zone Learning Apply Result"
+    icon: "mdi:checkbox-marked-circle-outline"
+    entity_category: diagnostic
+    update_interval: 1s
+    lambda: |-
+      char buffer[48];
+      snprintf(buffer, sizeof(buffer), "zone_%d cells=%d", id(learning_zone), id(learning_last_applied_cells));
+      return {buffer};
+
+  - platform: template
+    name: "Virtual Grid Bounds"
+    icon: "mdi:vector-rectangle"
+    entity_category: diagnostic
+    update_interval: 2s
+    lambda: |-
+      char buffer[96];
+      snprintf(
+        buffer,
+        sizeof(buffer),
+        "x:[%.0f,%.0f] y:[%.0f,%.0f] grid:16x16",
+        id(grid_x_min_mm).state,
+        id(grid_x_max_mm).state,
+        id(grid_y_min_mm).state,
+        id(grid_y_max_mm).state
+      );
+      return {buffer};
+
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+      entity_category: diagnostic
+    ssid:
+      name: "Connected SSID"
+      entity_category: diagnostic
+    mac_address:
+      name: "MAC Address"
+      entity_category: diagnostic
+
+button:
+  - platform: ld2450
+    ld2450_id: ld2450_radar
+    factory_reset:
+      name: "LD2450 Factory Reset"
+      entity_category: config
+    restart:
+      name: "LD2450 Restart"
+      entity_category: config
+
+  - platform: template
+    name: "Start Zone Learning"
+    icon: "mdi:record-circle-outline"
+    entity_category: config
+    on_press:
+      then:
+        - script.execute: start_zone_learning
+
+  - platform: template
+    name: "Apply Learned Zone"
+    icon: "mdi:check-circle-outline"
+    entity_category: config
+    on_press:
+      then:
+        - script.execute: apply_learned_zone
+
+  - platform: template
+    name: "Discard Learned Zone"
+    icon: "mdi:close-circle-outline"
+    entity_category: config
+    on_press:
+      then:
+        - script.execute: discard_zone_learning
+
+  - platform: template
+    name: "Clear Selected Virtual Zone"
+    icon: "mdi:eraser"
+    entity_category: config
+    on_press:
+      then:
+        - script.execute: clear_selected_virtual_zone
+
+  - platform: template
+    name: "Clear All Virtual Zones"
+    icon: "mdi:delete-sweep"
+    entity_category: config
+    on_press:
+      then:
+        - script.execute: clear_all_virtual_zones
+
+  - platform: factory_reset
+    name: "Restart with Factory Default Settings"
+    id: factory_reset_btn
+    entity_category: config
+
+  - platform: restart
+    name: "Restart"
+    entity_category: diagnostic
+
+  - platform: safe_mode
+    name: "Safe Mode"
+    entity_category: config

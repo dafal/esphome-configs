@@ -15,6 +15,7 @@ ESPHome configuration for ProBreeze 20L PB-D-24-WF dehumidifier with Tuya MCU. R
 
 ### [Athom PS02C3MZ Sensor (LD2450)](./athom-ps02c3mz-sensor/)
 ESPHome configuration for Athom PS02C3MZ LD2450 presence sensor with per-zone presence binary sensors and a guided zone-learning workflow to auto-fill zone coordinates.
+Also includes a virtual-zones variant (`athom-ps02c3mz-sensor-virtual5-16x16.yaml`) with 5 learned zones on a 16x16 grid.
 
 ## Using these configs as ESPHome packages
 Add a minimal device YAML in your ESPHome dashboard and pull the package directly from this repo using `remote_package`.

@@ -105,11 +105,6 @@ logger:
   level: DEBUG
   baud_rate: 115200
 
-status_led:
-  pin:
-    number: GPIO2
-    inverted: true
-
 esp32_ble_tracker:
   id: ble_tracker
   scan_parameters:
@@ -629,6 +624,15 @@ switch:
       name: "LD2450 Bluetooth"
     multi_target:
       name: "Multi Target Tracking"
+
+light:
+  - platform: status_led
+    name: "Status LED"
+    disabled_by_default: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      number: GPIO2
+      inverted: true
 
 text_sensor:
   - platform: ld2450
