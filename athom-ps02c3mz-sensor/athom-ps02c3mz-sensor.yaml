@@ -399,7 +399,7 @@ number:
     entity_category: config
     optimistic: true
     min_value: 5
-    max_value: 60
+    max_value: 120
     step: 1
     initial_value: 15
     restore_value: true
@@ -632,7 +632,7 @@ light:
     restore_mode: ALWAYS_OFF
     pin:
       number: GPIO2
-      inverted: true
+      inverted: false
 
 text_sensor:
   - platform: ld2450

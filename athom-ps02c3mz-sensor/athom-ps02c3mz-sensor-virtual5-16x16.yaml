@@ -151,7 +151,7 @@ ld2450:
   uart_id: uart_ld2450
 
 interval:
-  - interval: 250ms
+  - interval: 100ms
     then:
       - lambda: |-
           id(virtual_zone_presence_1) = false;
@@ -239,6 +239,12 @@ interval:
           apply_cell(id(target_1_x).state, id(target_1_y).state, id(target_1_distance).state);
           apply_cell(id(target_2_x).state, id(target_2_y).state, id(target_2_distance).state);
           apply_cell(id(target_3_x).state, id(target_3_y).state, id(target_3_distance).state);
+
+          id(vzone_presence_1).publish_state(id(virtual_zone_presence_1));
+          id(vzone_presence_2).publish_state(id(virtual_zone_presence_2));
+          id(vzone_presence_3).publish_state(id(virtual_zone_presence_3));
+          id(vzone_presence_4).publish_state(id(virtual_zone_presence_4));
+          id(vzone_presence_5).publish_state(id(virtual_zone_presence_5));
 
 script:
   - id: ble_mode_disabled
@@ -422,7 +428,7 @@ number:
     entity_category: config
     optimistic: true
     min_value: 5
-    max_value: 60
+    max_value: 120
     step: 1
     initial_value: 15
     restore_value: true
@@ -664,33 +670,28 @@ binary_sensor:
 
   - platform: template
     name: "Virtual Zone 1 Presence"
+    id: vzone_presence_1
     device_class: occupancy
-    lambda: |-
-      return id(virtual_zone_presence_1);
 
   - platform: template
     name: "Virtual Zone 2 Presence"
+    id: vzone_presence_2
     device_class: occupancy
-    lambda: |-
-      return id(virtual_zone_presence_2);
 
   - platform: template
     name: "Virtual Zone 3 Presence"
+    id: vzone_presence_3
     device_class: occupancy
-    lambda: |-
-      return id(virtual_zone_presence_3);
 
   - platform: template
     name: "Virtual Zone 4 Presence"
+    id: vzone_presence_4
     device_class: occupancy
-    lambda: |-
-      return id(virtual_zone_presence_4);
 
   - platform: template
     name: "Virtual Zone 5 Presence"
+    id: vzone_presence_5
     device_class: occupancy
-    lambda: |-
-      return id(virtual_zone_presence_5);
 
   - platform: template
     name: "Zone Learning Running"
@@ -744,7 +745,7 @@ light:
     restore_mode: ALWAYS_OFF
     pin:
       number: GPIO2
-      inverted: true
+      inverted: false
 
 text_sensor:
   - platform: ld2450
@@ -757,7 +758,7 @@ text_sensor:
   - platform: template
     name: "Active Virtual Zone"
     icon: "mdi:grid"
-    update_interval: 1s
+    update_interval: 250ms
     lambda: |-
       const bool z1 = id(virtual_zone_presence_1);
       const bool z2 = id(virtual_zone_presence_2);
