@@ -292,6 +292,9 @@ const visible = Array(N_ZONES).fill(true);
 // Active editing zone
 let activeZone = 0;
 
+// Dirty flag per zone: true = local edits not yet saved, ignore SSE mask updates
+const dirty = Array(N_ZONES).fill(false);
+
 // Grid bounds (mm)
 let gridXMin = -6000, gridXMax = 6000, gridYMin = 0, gridYMax = 6000;
 
@@ -527,7 +530,7 @@ function buildSidebar() {
 
     const label = document.createElement('span');
     label.className = 'zone-label';
-    label.textContent = ZONE_NAMES[z];
+    label.textContent = ZONE_NAMES[z] + (dirty[z] ? ' *' : '');
 
     const count = document.createElement('span');
     count.className = 'zone-count';
@@ -619,6 +622,7 @@ async function loadAll() {
   for (let z = 0; z < N_ZONES; z++) {
     const hex = await getTextSensor(names[z]);
     if (hex && hexToMask(hex, masks[z])) {
+      dirty[z] = false;
       ok++;
     } else {
       log(`Warning: failed to load Zone ${z+1} mask`);
@@ -627,6 +631,7 @@ async function loadAll() {
   // Load grid bounds
   await loadGridBounds();
   updateCounts();
+  buildSidebar();
   log(`Loaded ${ok}/5 zone masks.`);
 }
 
@@ -652,7 +657,13 @@ async function saveZone(z) {
   const hex = maskToHex(masks[z]);
   log(`Saving Zone ${z+1}...`);
   const ok = await postText(names[z], hex);
-  log(ok ? `Zone ${z+1} saved OK.` : `Zone ${z+1} save FAILED.`);
+  if (ok) {
+    dirty[z] = false;
+    buildSidebar();
+    log(`Zone ${z+1} saved OK.`);
+  } else {
+    log(`Zone ${z+1} save FAILED.`);
+  }
 }
 
 async function saveAll() {
@@ -721,6 +732,7 @@ function handleStateEvent(d) {
   if (id === 'number-grid_y_max_mm') { gridYMax = parseFloat(val); updateBoundsUI(); }
 
   // Zone masks (if updated from device side e.g. after learning)
+  // Skip if zone has local unsaved edits (dirty) to avoid overwriting user changes
   const maskMap = {
     'text_sensor-zone_1_mask': 0, 'text_sensor-zone_2_mask': 1,
     'text_sensor-zone_3_mask': 2, 'text_sensor-zone_4_mask': 3,
@@ -728,8 +740,10 @@ function handleStateEvent(d) {
   };
   const zi = maskMap[id];
   if (zi !== undefined && typeof val === 'string' && val.length === 64) {
-    hexToMask(val, masks[zi]);
-    updateCounts();
+    if (!dirty[zi]) {
+      hexToMask(val, masks[zi]);
+      updateCounts();
+    }
   }
 }
 
@@ -796,7 +810,9 @@ canvas.addEventListener('mousedown', (e) => {
     paintValue = current === 0; // if OFF, paint ON; if ON, paint OFF
     setBit(masks[activeZone], cell, paintValue);
   }
+  dirty[activeZone] = true;
   updateCounts();
+  buildSidebar();
 });
 
 canvas.addEventListener('mousemove', (e) => {
@@ -817,7 +833,9 @@ canvas.addEventListener('mousemove', (e) => {
   if (!isPainting || cell < 0 || cell === lastPaintedCell) return;
   lastPaintedCell = cell;
   setBit(masks[activeZone], cell, paintValue);
+  dirty[activeZone] = true;
   updateCounts();
+  buildSidebar();
 });
 
 canvas.addEventListener('mouseup', () => { isPainting = false; });
