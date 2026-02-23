@@ -812,7 +812,7 @@ sensor:
         filters:
           - timeout:
               timeout: 300ms
-              value: last
+              value: .nan
           - throttle_with_priority:
               timeout: 200ms
               value: .nan
@@ -822,7 +822,7 @@ sensor:
         filters:
           - timeout:
               timeout: 300ms
-              value: last
+              value: .nan
           - throttle_with_priority:
               timeout: 200ms
               value: .nan
@@ -832,7 +832,7 @@ sensor:
         filters:
           - timeout:
               timeout: 300ms
-              value: last
+              value: .nan
           - throttle_with_priority:
               timeout: 200ms
               value: .nan
@@ -846,7 +846,7 @@ sensor:
         filters:
           - timeout:
               timeout: 300ms
-              value: last
+              value: .nan
           - throttle_with_priority:
               timeout: 200ms
               value: .nan
@@ -856,7 +856,7 @@ sensor:
         filters:
           - timeout:
               timeout: 300ms
-              value: last
+              value: .nan
           - throttle_with_priority:
               timeout: 200ms
               value: .nan
@@ -866,7 +866,7 @@ sensor:
         filters:
           - timeout:
               timeout: 300ms
-              value: last
+              value: .nan
           - throttle_with_priority:
               timeout: 200ms
               value: .nan
@@ -880,7 +880,7 @@ sensor:
         filters:
           - timeout:
               timeout: 300ms
-              value: last
+              value: .nan
           - throttle_with_priority:
               timeout: 200ms
               value: .nan
@@ -890,7 +890,7 @@ sensor:
         filters:
           - timeout:
               timeout: 300ms
-              value: last
+              value: .nan
           - throttle_with_priority:
               timeout: 200ms
               value: .nan
@@ -900,7 +900,7 @@ sensor:
         filters:
           - timeout:
               timeout: 300ms
-              value: last
+              value: .nan
           - throttle_with_priority:
               timeout: 200ms
               value: .nan
