@@ -15,6 +15,37 @@ substitutions:
   project_version: 1.2.2
   area: ""
 
+  # =============================================================
+  # Signal Bus — Producteur (switch physique publie des signaux)
+  # Laisser vide ("") pour désactiver l'envoi de cet événement.
+  # L'action détermine ce que le consommateur fera: on, off, toggle
+  # =============================================================
+  # Edge ON/OFF (press/release en mode Edge ou Follow)
+  signal_sw_edge_on_address: ""    # ex: "shelly-salon"  → publie ON sur press
+  signal_sw_edge_on_action: "on"
+  signal_sw_edge_off_address: ""   # ex: "shelly-salon"  → publie OFF sur release
+  signal_sw_edge_off_action: "off"
+  # Single click (modes Multi-Click / Smart Multi-Click)
+  signal_sw_single_address: ""     # ex: "shelly-salon"
+  signal_sw_single_action: "toggle"
+  # Double click
+  signal_sw_double_address: ""
+  signal_sw_double_action: "toggle"
+  # Triple click
+  signal_sw_triple_address: ""
+  signal_sw_triple_action: "toggle"
+  # Long press
+  signal_sw_long_address: ""
+  signal_sw_long_action: "off"
+
+  # =============================================================
+  # Signal Bus — Consommateur (relay écoute un switch distant)
+  # Renseigner le device_name du Shelly producteur.
+  # Laisser vide ("") pour désactiver la réception.
+  # =============================================================
+  signal_relay_provider: "none"    # ex: "shelly-couloir"  (device_name du producteur)
+                                   # Garder "none" pour désactiver (ne correspond à aucun device)
+
 # ===================================
 # Device & Platform Configuration
 # ===================================
@@ -142,6 +173,42 @@ captive_portal:
 
 mdns:
   disabled: false
+
+# ===================================
+# Signal Bus (UDP Packet Transport)
+# ===================================
+# Permet la communication directe device-à-device via UDP LAN.
+# Fonctionne sans Home Assistant (HA optionnel).
+#
+# Ce device peut être producteur (switch publie des signaux)
+# et/ou consommateur (relay écoute un switch distant).
+#
+# Configuration via les substitutions signal_sw_* et signal_relay_*
+# en haut du fichier. Laisser "" pour désactiver.
+
+udp:
+
+packet_transport:
+  platform: udp
+  # Producteur : liste des binary sensors publiés sur le LAN.
+  # Chaque sensor n'est publié que si son adresse de destination
+  # est configurée (guard dans les handlers).
+  binary_sensors:
+    - id: signal_sw_edge_on_bs
+      broadcast_id: signal_sw_edge_on
+    - id: signal_sw_edge_off_bs
+      broadcast_id: signal_sw_edge_off
+    - id: signal_sw_single_bs
+      broadcast_id: signal_sw_single
+    - id: signal_sw_double_bs
+      broadcast_id: signal_sw_double
+    - id: signal_sw_triple_bs
+      broadcast_id: signal_sw_triple
+    - id: signal_sw_long_bs
+      broadcast_id: signal_sw_long
+  # Consommateur : accepte les signaux venant du device producteur.
+  providers:
+    - name: "${signal_relay_provider}"
 
 # ===================================
 # Home Assistant Integration
@@ -410,7 +477,13 @@ script:
           condition:
             binary_sensor.is_on: physical_switch
           then:
-            - lambda: 'ESP_LOGI("multi", "Multi-click: Long press");'
+            - lambda: |-
+                ESP_LOGI("multi", "Multi-click: Long press");
+                // Signal Bus: publier long press si adresse configurée
+                if (strlen("${signal_sw_long_address}") > 0) {
+                  id(signal_sw_long_bs).publish_state(true);
+                  id(signal_sw_long_bs).publish_state(false);
+                }
             - homeassistant.event:
                 event: esphome.button_click
                 data:
@@ -487,6 +560,38 @@ switch:
 # ===================================
 
 binary_sensor:
+  # ===================================
+  # Signal Bus — Sensors producteurs
+  # ===================================
+  # Ces sensors internes sont publiés via packet_transport.
+  # Ils sont activés (true) par les handlers du switch physique
+  # puis immédiatement remis à false (pulse d'une trame UDP).
+  # Ils n'ont pas de nom HA (internal: true par défaut).
+
+  - platform: template
+    id: signal_sw_edge_on_bs
+    internal: true
+
+  - platform: template
+    id: signal_sw_edge_off_bs
+    internal: true
+
+  - platform: template
+    id: signal_sw_single_bs
+    internal: true
+
+  - platform: template
+    id: signal_sw_double_bs
+    internal: true
+
+  - platform: template
+    id: signal_sw_triple_bs
+    internal: true
+
+  - platform: template
+    id: signal_sw_long_bs
+    internal: true
+
   # Physical switch input (GPIO 10) - Enhanced with multiple modes
   - platform: gpio
     name: "Switch"
@@ -516,11 +621,19 @@ binary_sensor:
             } else if (mode == "Edge (Toggle)") {
               // Toggle relay on each press
               id(relay).toggle();
-              
+              // Signal Bus: publier edge ON si adresse configurée
+              if (strlen("${signal_sw_edge_on_address}") > 0) {
+                id(signal_sw_edge_on_bs).publish_state(true);
+                id(signal_sw_edge_on_bs).publish_state(false);
+              }
             } else if (mode == "Follow") {
               // Relay follows switch state - turn ON
               id(relay).turn_on();
-              
+              // Signal Bus: publier edge ON si adresse configurée
+              if (strlen("${signal_sw_edge_on_address}") > 0) {
+                id(signal_sw_edge_on_bs).publish_state(true);
+                id(signal_sw_edge_on_bs).publish_state(false);
+              }
             } else if (mode == "Detached") {
               // Relay independent - just log
               ESP_LOGI("switch", "Detached mode: press event");
@@ -563,7 +676,11 @@ binary_sensor:
             } else if (mode == "Follow") {
               // Relay follows switch state - turn OFF
               id(relay).turn_off();
-              
+              // Signal Bus: publier edge OFF si adresse configurée
+              if (strlen("${signal_sw_edge_off_address}") > 0) {
+                id(signal_sw_edge_off_bs).publish_state(true);
+                id(signal_sw_edge_off_bs).publish_state(false);
+              }
             } else if (mode == "Detached") {
               // Just log
               ESP_LOGI("switch", "Detached mode: release event");
@@ -588,6 +705,11 @@ binary_sensor:
                     // In Smart Multi-Click, toggle relay on single click
                     if (id(switch_mode).current_option() == "Smart Multi-Click") {
                       id(relay).toggle();
+                    }
+                    // Signal Bus: publier single click si adresse configurée
+                    if (strlen("${signal_sw_single_address}") > 0) {
+                      id(signal_sw_single_bs).publish_state(true);
+                      id(signal_sw_single_bs).publish_state(false);
                     }
                 - homeassistant.event:
                     event: esphome.button_click
@@ -618,6 +740,11 @@ binary_sensor:
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 2 clicks");
+                    // Signal Bus: publier double click si adresse configurée
+                    if (strlen("${signal_sw_double_address}") > 0) {
+                      id(signal_sw_double_bs).publish_state(true);
+                      id(signal_sw_double_bs).publish_state(false);
+                    }
                 - homeassistant.event:
                     event: esphome.button_click
                     data:
@@ -653,6 +780,11 @@ binary_sensor:
               then:
                 - lambda: |-
                     ESP_LOGI("multi", "Multi-click: 3 clicks");
+                    // Signal Bus: publier triple click si adresse configurée
+                    if (strlen("${signal_sw_triple_address}") > 0) {
+                      id(signal_sw_triple_bs).publish_state(true);
+                      id(signal_sw_triple_bs).publish_state(false);
+                    }
                 - homeassistant.event:
                     event: esphome.button_click
                     data:
@@ -675,6 +807,128 @@ binary_sensor:
     filters:
       - delayed_on_off: 50ms
 
+
+  # ===================================
+  # Signal Bus — Sensors consommateurs (relay)
+  # ===================================
+  # Ces sensors reçoivent les signaux UDP du device producteur.
+  # Actifs uniquement si signal_relay_provider est renseigné.
+  # Chaque sensor correspond à un type d'événement producteur,
+  # et exécute l'action définie par le producteur (on/off/toggle).
+
+  # Reçoit signal_sw_edge_on → action "on"
+  - platform: packet_transport
+    id: signal_relay_edge_on
+    name: "Signal Relay Edge ON"
+    internal: true
+    provider: "${signal_relay_provider}"
+    remote_id: signal_sw_edge_on
+    on_press:
+      then:
+        - if:
+            condition:
+              lambda: 'return strcmp("${signal_relay_provider}", "none") != 0;'
+            then:
+              - lambda: |-
+                  ESP_LOGI("signal_bus", "Received edge_on from ${signal_relay_provider}, action: ${signal_sw_edge_on_action}");
+                  if (strcmp("${signal_sw_edge_on_action}", "on") == 0) id(relay).turn_on();
+                  else if (strcmp("${signal_sw_edge_on_action}", "off") == 0) id(relay).turn_off();
+                  else id(relay).toggle();
+
+  # Reçoit signal_sw_edge_off → action "off"
+  - platform: packet_transport
+    id: signal_relay_edge_off
+    name: "Signal Relay Edge OFF"
+    internal: true
+    provider: "${signal_relay_provider}"
+    remote_id: signal_sw_edge_off
+    on_press:
+      then:
+        - if:
+            condition:
+              lambda: 'return strcmp("${signal_relay_provider}", "none") != 0;'
+            then:
+              - lambda: |-
+                  ESP_LOGI("signal_bus", "Received edge_off from ${signal_relay_provider}, action: ${signal_sw_edge_off_action}");
+                  if (strcmp("${signal_sw_edge_off_action}", "on") == 0) id(relay).turn_on();
+                  else if (strcmp("${signal_sw_edge_off_action}", "off") == 0) id(relay).turn_off();
+                  else id(relay).toggle();
+
+  # Reçoit signal_sw_single → action single click
+  - platform: packet_transport
+    id: signal_relay_single
+    name: "Signal Relay Single Click"
+    internal: true
+    provider: "${signal_relay_provider}"
+    remote_id: signal_sw_single
+    on_press:
+      then:
+        - if:
+            condition:
+              lambda: 'return strcmp("${signal_relay_provider}", "none") != 0;'
+            then:
+              - lambda: |-
+                  ESP_LOGI("signal_bus", "Received single_click from ${signal_relay_provider}, action: ${signal_sw_single_action}");
+                  if (strcmp("${signal_sw_single_action}", "on") == 0) id(relay).turn_on();
+                  else if (strcmp("${signal_sw_single_action}", "off") == 0) id(relay).turn_off();
+                  else id(relay).toggle();
+
+  # Reçoit signal_sw_double → action double click
+  - platform: packet_transport
+    id: signal_relay_double
+    name: "Signal Relay Double Click"
+    internal: true
+    provider: "${signal_relay_provider}"
+    remote_id: signal_sw_double
+    on_press:
+      then:
+        - if:
+            condition:
+              lambda: 'return strcmp("${signal_relay_provider}", "none") != 0;'
+            then:
+              - lambda: |-
+                  ESP_LOGI("signal_bus", "Received double_click from ${signal_relay_provider}, action: ${signal_sw_double_action}");
+                  if (strcmp("${signal_sw_double_action}", "on") == 0) id(relay).turn_on();
+                  else if (strcmp("${signal_sw_double_action}", "off") == 0) id(relay).turn_off();
+                  else id(relay).toggle();
+
+  # Reçoit signal_sw_triple → action triple click
+  - platform: packet_transport
+    id: signal_relay_triple
+    name: "Signal Relay Triple Click"
+    internal: true
+    provider: "${signal_relay_provider}"
+    remote_id: signal_sw_triple
+    on_press:
+      then:
+        - if:
+            condition:
+              lambda: 'return strcmp("${signal_relay_provider}", "none") != 0;'
+            then:
+              - lambda: |-
+                  ESP_LOGI("signal_bus", "Received triple_click from ${signal_relay_provider}, action: ${signal_sw_triple_action}");
+                  if (strcmp("${signal_sw_triple_action}", "on") == 0) id(relay).turn_on();
+                  else if (strcmp("${signal_sw_triple_action}", "off") == 0) id(relay).turn_off();
+                  else id(relay).toggle();
+
+  # Reçoit signal_sw_long → action long press
+  - platform: packet_transport
+    id: signal_relay_long
+    name: "Signal Relay Long Press"
+    internal: true
+    provider: "${signal_relay_provider}"
+    remote_id: signal_sw_long
+    on_press:
+      then:
+        - if:
+            condition:
+              lambda: 'return strcmp("${signal_relay_provider}", "none") != 0;'
+            then:
+              - lambda: |-
+                  ESP_LOGI("signal_bus", "Received long_press from ${signal_relay_provider}, action: ${signal_sw_long_action}");
+                  if (strcmp("${signal_sw_long_action}", "on") == 0) id(relay).turn_on();
+                  else if (strcmp("${signal_sw_long_action}", "off") == 0) id(relay).turn_off();
+                  else id(relay).toggle();
 
   # Overheating status indicator
   - id: error_overtemp
