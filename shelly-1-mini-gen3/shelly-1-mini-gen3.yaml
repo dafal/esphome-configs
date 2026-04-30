@@ -16,34 +16,39 @@ substitutions:
   area: ""
 
   # =============================================================
-  # Signal Bus — Producteur (switch physique publie des signaux)
-  # Laisser vide ("") pour désactiver l'envoi de cet événement.
-  # L'action détermine ce que le relay consommateur fera: on, off, toggle
+  # Signal Bus configuration
   # =============================================================
-  # Edge ON/OFF (press/release en mode Edge ou Follow)
-  signal_sw_edge_on_address: ""    # ex: "test-switch"  → publie ON sur press
-  signal_sw_edge_on_action: "on"
-  signal_sw_edge_off_address: ""   # ex: "test-switch"  → publie OFF sur release
-  signal_sw_edge_off_action: "off"
-  # Single click (modes Multi-Click / Smart Multi-Click)
-  signal_sw_single_address: ""     # ex: "test-switch"
-  signal_sw_single_action: "toggle"
-  # Double click
-  signal_sw_double_address: ""
-  signal_sw_double_action: "toggle"
-  # Triple click
-  signal_sw_triple_address: ""
-  signal_sw_triple_action: "toggle"
-  # Long press
-  signal_sw_long_address: ""
-  signal_sw_long_action: "off"
+  # Common setup: one switch toggles one relay
+  #   switch: signal_switch_single_address: "kitchen_main"
+  #   switch: signal_switch_single_action: "toggle"
+  #   relay:  signal_relay_address: "kitchen_main"
+  #
+  # Follow setup: press turns ON, release turns OFF
+  #   switch: signal_switch_press_address: "hall_light"
+  #   switch: signal_switch_press_action: "on"
+  #   switch: signal_switch_release_address: "hall_light"
+  #   switch: signal_switch_release_action: "off"
+  #   relay:  signal_relay_address: "hall_light"
 
-  # =============================================================
-  # Signal Bus — Consommateur (relay écoute une adresse partagée)
-  # Renseigner la même adresse qu'un producteur publie.
-  # Laisser vide ("") pour désactiver la réception.
-  # =============================================================
-  signal_relay_address: ""         # ex: "test-switch"
+  # Relay listener: this relay reacts to UDP signals sent to this address.
+  # Leave empty to disable remote control.
+  signal_relay_address: ""
+
+  # Switch press/release events (used in Edge/Follow modes)
+  signal_switch_press_address: ""
+  signal_switch_press_action: "on"
+  signal_switch_release_address: ""
+  signal_switch_release_action: "off"
+
+  # Switch click events (used in Multi-Click / Smart Multi-Click modes)
+  signal_switch_single_address: ""
+  signal_switch_single_action: "toggle"
+  signal_switch_double_address: ""
+  signal_switch_double_action: "toggle"
+  signal_switch_triple_address: ""
+  signal_switch_triple_action: "toggle"
+  signal_switch_long_address: ""
+  signal_switch_long_action: "off"
 
 # ===================================
 # Device & Platform Configuration
@@ -505,11 +510,11 @@ script:
                   message: "Long press detected"
             - if:
                 condition:
-                  lambda: 'return strlen("${signal_sw_long_address}") > 0;'
+                  lambda: 'return strlen("${signal_switch_long_address}") > 0;'
                 then:
                   - udp.write:
                       id: signal_bus_udp
-                      data: "relay|${signal_sw_long_address}|${signal_sw_long_action}"
+                      data: "relay|${signal_switch_long_address}|${signal_switch_long_action}"
 
 # ===================================
 # Output Control
@@ -619,12 +624,12 @@ binary_sensor:
             condition:
               lambda: |-
                 const auto mode = id(switch_mode).current_option();
-                return strlen("${signal_sw_edge_on_address}") > 0 &&
+                return strlen("${signal_switch_press_address}") > 0 &&
                        (mode == "Edge (Toggle)" || mode == "Follow");
             then:
               - udp.write:
                   id: signal_bus_udp
-                  data: "relay|${signal_sw_edge_on_address}|${signal_sw_edge_on_action}"
+                  data: "relay|${signal_switch_press_address}|${signal_switch_press_action}"
         
         # Long-press detection - non-blocking script execution
         - if:
@@ -669,11 +674,11 @@ binary_sensor:
             }
         - if:
             condition:
-              lambda: 'return strlen("${signal_sw_edge_off_address}") > 0 && id(switch_mode).current_option() == "Follow";'
+              lambda: 'return strlen("${signal_switch_release_address}") > 0 && id(switch_mode).current_option() == "Follow";'
             then:
               - udp.write:
                   id: signal_bus_udp
-                  data: "relay|${signal_sw_edge_off_address}|${signal_sw_edge_off_action}"
+                  data: "relay|${signal_switch_release_address}|${signal_switch_release_action}"
 
     # MULTI-CLICK DETECTION (native)
     on_multi_click:
@@ -704,11 +709,11 @@ binary_sensor:
                       message: "Single click detected"
                 - if:
                     condition:
-                      lambda: 'return strlen("${signal_sw_single_address}") > 0;'
+                      lambda: 'return strlen("${signal_switch_single_address}") > 0;'
                     then:
                       - udp.write:
                           id: signal_bus_udp
-                          data: "relay|${signal_sw_single_address}|${signal_sw_single_action}"
+                          data: "relay|${signal_switch_single_address}|${signal_switch_single_action}"
         invalid_cooldown: 0.5s
 
       # Double click
@@ -740,11 +745,11 @@ binary_sensor:
                       message: "Double click detected"
                 - if:
                     condition:
-                      lambda: 'return strlen("${signal_sw_double_address}") > 0;'
+                      lambda: 'return strlen("${signal_switch_double_address}") > 0;'
                     then:
                       - udp.write:
                           id: signal_bus_udp
-                          data: "relay|${signal_sw_double_address}|${signal_sw_double_action}"
+                          data: "relay|${signal_switch_double_address}|${signal_switch_double_action}"
         invalid_cooldown: 0.5s
 
       # Triple click
@@ -782,11 +787,11 @@ binary_sensor:
                       message: "Triple click detected"
                 - if:
                     condition:
-                      lambda: 'return strlen("${signal_sw_triple_address}") > 0;'
+                      lambda: 'return strlen("${signal_switch_triple_address}") > 0;'
                     then:
                       - udp.write:
                           id: signal_bus_udp
-                          data: "relay|${signal_sw_triple_address}|${signal_sw_triple_action}"
+                          data: "relay|${signal_switch_triple_address}|${signal_switch_triple_action}"
         invalid_cooldown: 0.5s
 
   # Physical button input (GPIO 1)
