@@ -21,18 +21,19 @@ substitutions:
   # Common setup: one switch toggles one relay
   #   switch: signal_switch_single_address: "kitchen_main"
   #   switch: signal_switch_single_action: "toggle"
-  #   relay:  signal_relay_address: "kitchen_main"
+  #   relay:  signal_relay_addresses: "kitchen_main"
   #
   # Follow setup: press turns ON, release turns OFF
   #   switch: signal_switch_press_address: "hall_light"
   #   switch: signal_switch_press_action: "on"
   #   switch: signal_switch_release_address: "hall_light"
   #   switch: signal_switch_release_action: "off"
-  #   relay:  signal_relay_address: "hall_light"
+  #   relay:  signal_relay_addresses: "hall_light"
 
-  # Relay listener: this relay reacts to UDP signals sent to this address.
-  # Leave empty to disable remote control.
-  signal_relay_address: ""
+  # Relay listener: this relay reacts to UDP signals sent to any of these
+  # comma-separated addresses. Leave empty to disable remote control.
+  # Example: "kitchen_main,hall_light,all_lights"
+  signal_relay_addresses: ""
 
   # Switch press/release events (used in Edge/Follow modes)
   signal_switch_press_address: ""
@@ -202,8 +203,8 @@ udp:
             return;
           }
 
-          const std::string local_address = "${signal_relay_address}";
-          if (local_address.empty()) {
+          const std::string local_addresses = "${signal_relay_addresses}";
+          if (local_addresses.empty()) {
             return;
           }
 
@@ -216,7 +217,32 @@ udp:
           const std::string target_address = payload.substr(6, address_end - 6);
           const std::string action = payload.substr(address_end + 1);
 
-          if (target_address != local_address) {
+          bool matched = false;
+          size_t start = 0;
+          while (start <= local_addresses.size()) {
+            size_t end = local_addresses.find(',', start);
+            if (end == std::string::npos) {
+              end = local_addresses.size();
+            }
+
+            std::string candidate = local_addresses.substr(start, end - start);
+            const auto left = candidate.find_first_not_of(" \t");
+            if (left != std::string::npos) {
+              const auto right = candidate.find_last_not_of(" \t");
+              candidate = candidate.substr(left, right - left + 1);
+              if (candidate == target_address) {
+                matched = true;
+                break;
+              }
+            }
+
+            if (end == local_addresses.size()) {
+              break;
+            }
+            start = end + 1;
+          }
+
+          if (!matched) {
             return;
           }
 
