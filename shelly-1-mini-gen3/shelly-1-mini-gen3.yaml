@@ -12,12 +12,16 @@ substitutions:
   device_name: shelly-1-mini-gen3
   friendly_name: Shelly 1 Mini Gen3
   project_name: dafal_esphome-configs.shelly_1_mini_gen3
-  project_version: 1.4.0
+  project_version: 1.6.0
   area: ""
 
   # =============================================================
   # Signal Bus configuration
   # =============================================================
+  # Shared site key is required on every sender and relay.
+  # Put it in secrets and reuse the same value across the site.
+  #   signal_bus_encryption_key: !secret signal_bus_encryption_key
+  #
   # Common setup: one switch toggles one relay
   #   switch: signal_switch_single_address: "kitchen_main"
   #   switch: signal_switch_single_action: "toggle"
@@ -33,6 +37,7 @@ substitutions:
   # Relay listener: this relay reacts to UDP signals sent to any of these
   # comma-separated addresses. Leave empty to disable remote control.
   # Example: "kitchen_main,hall_light,all_lights"
+  signal_bus_encryption_key: ""
   signal_relay_addresses: ""
 
   # Switch press/release events (used in Edge/Follow modes)
@@ -117,6 +122,13 @@ esphome:
             id(pulse_counter_sensor).publish_state(id(pulse_counter));
           }
 
+          id(signal_bus_boot_id) = esp_random();
+          id(signal_bus_counter) = 0;
+          ESP_LOGI("signal_bus", "Signal bus session started: boot_id=%u", id(signal_bus_boot_id));
+          if (strlen("${signal_bus_encryption_key}") == 0) {
+            ESP_LOGW("signal_bus", "Signal bus encryption key is empty; send and receive are disabled");
+          }
+
           auto saved_ble = id(ble_scan_mode).current_option();
           ESP_LOGI("boot", "BLE restore scheduled: %s", saved_ble);
       - delay: 1s
@@ -156,6 +168,14 @@ globals:
     type: bool
     restore_value: false
     initial_value: 'false'
+  - id: signal_bus_boot_id
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: signal_bus_counter
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
 
 # ===================================
 # Network Configuration
@@ -180,16 +200,27 @@ mdns:
   disabled: false
 
 # ===================================
-# Signal Bus (Raw UDP)
+# Signal Bus (Encrypted UDP)
 # ===================================
-# Permet la communication directe device-à-device via UDP LAN.
-# Fonctionne sans Home Assistant (HA optionnel).
+# Direct device-to-device communication over UDP LAN.
+# Requires the same shared site key on every sender and relay.
 #
-# Ce device peut être producteur (switch publie des signaux)
-# et/ou consommateur (relay écoute une adresse partagée).
+# Payload format: sb2|<sender>|<boot_id>|<counter>|<ciphertext_hex>
 #
-# Le payload UDP est: relay|<address>|<action>
-# ex: relay|test-switch|toggle
+# Encrypted block layout (XXTEA):
+#   [4-byte LE length][message bytes][4-byte random nonce][4-byte truncated SipHash MAC]
+#   Message: relay|<address>|<action>
+#
+# Security properties:
+#   - Confidentiality: XXTEA with 256-bit key derived via HKDF-lite (SipHash PRF)
+#   - Integrity/authenticity: truncated SipHash-2-4 MAC with a separate derived key
+#   - Replay protection: per-sender (boot_id, counter) window, 8-slot table
+#   - Nonce: 4 bytes of esp_random() per packet prevents ciphertext pattern analysis
+#
+# NOTE: The crypto helpers (siphash / sb_derive / xxtea_transform / hex utils) are
+# intentionally duplicated between the send_signal_bus lambda and the on_receive lambda
+# because ESPHome YAML does not support shared lambda code.
+# If you fix a bug in one copy you MUST apply the same fix to the other.
 
 udp:
   id: signal_bus_udp
@@ -199,7 +230,13 @@ udp:
     then:
       - lambda: |-
           std::string payload(data.begin(), data.end());
-          if (payload.rfind("relay|", 0) != 0) {
+          if (payload.rfind("sb2|", 0) != 0) {
+            return;
+          }
+
+          const std::string secret = "${signal_bus_encryption_key}";
+          if (secret.empty()) {
+            ESP_LOGW("signal_bus", "Rejected encrypted packet because signal_bus_encryption_key is empty");
             return;
           }
 
@@ -208,14 +245,237 @@ udp:
             return;
           }
 
-          const size_t address_end = payload.find('|', 6);
-          if (address_end == std::string::npos) {
-            ESP_LOGW("signal_bus", "Invalid UDP payload: %s", payload.c_str());
+          auto trim = [](std::string value) {
+            const auto left = value.find_first_not_of(" \t");
+            if (left == std::string::npos) {
+              return std::string();
+            }
+            const auto right = value.find_last_not_of(" \t");
+            return value.substr(left, right - left + 1);
+          };
+
+          // ── SIGNAL BUS CRYPTO (keep identical in send and receive) ──────────
+          // If you fix a bug here, apply the same fix in send_signal_bus lambda.
+
+          // SipHash-2-4: 128-bit key (k0, k1 as uint64), arbitrary input -> uint64
+          auto siphash = [](const uint8_t *in, size_t inlen, uint64_t k0, uint64_t k1) -> uint64_t {
+            auto rotl64 = [](uint64_t x, int b) -> uint64_t { return (x << b) | (x >> (64 - b)); };
+            uint64_t v0 = k0 ^ 0x736f6d6570736575ULL;
+            uint64_t v1 = k1 ^ 0x646f72616e646f6dULL;
+            uint64_t v2 = k0 ^ 0x6c7967656e657261ULL;
+            uint64_t v3 = k1 ^ 0x7465646279746573ULL;
+            auto sipround = [&]() {
+              v0 += v1; v1 = rotl64(v1, 13); v1 ^= v0; v0 = rotl64(v0, 32);
+              v2 += v3; v3 = rotl64(v3, 16); v3 ^= v2;
+              v0 += v3; v3 = rotl64(v3, 21); v3 ^= v0;
+              v2 += v1; v1 = rotl64(v1, 17); v1 ^= v2; v2 = rotl64(v2, 32);
+            };
+            const uint8_t *end = in + inlen - (inlen % 8);
+            for (const uint8_t *p = in; p < end; p += 8) {
+              uint64_t m = static_cast<uint64_t>(p[0])        | (static_cast<uint64_t>(p[1]) << 8)  |
+                           (static_cast<uint64_t>(p[2]) << 16) | (static_cast<uint64_t>(p[3]) << 24) |
+                           (static_cast<uint64_t>(p[4]) << 32) | (static_cast<uint64_t>(p[5]) << 40) |
+                           (static_cast<uint64_t>(p[6]) << 48) | (static_cast<uint64_t>(p[7]) << 56);
+              v3 ^= m; sipround(); sipround(); v0 ^= m;
+            }
+            uint64_t last = static_cast<uint64_t>(inlen & 0xFF) << 56;
+            const uint8_t *r = end;
+            switch (inlen & 7) {
+              case 7: last |= static_cast<uint64_t>(r[6]) << 48; // fall through
+              case 6: last |= static_cast<uint64_t>(r[5]) << 40; // fall through
+              case 5: last |= static_cast<uint64_t>(r[4]) << 32; // fall through
+              case 4: last |= static_cast<uint64_t>(r[3]) << 24; // fall through
+              case 3: last |= static_cast<uint64_t>(r[2]) << 16; // fall through
+              case 2: last |= static_cast<uint64_t>(r[1]) << 8;  // fall through
+              case 1: last |= static_cast<uint64_t>(r[0]);       // fall through
+              default: break;
+            }
+            v3 ^= last; sipround(); sipround(); v0 ^= last;
+            v2 ^= 0xFF; sipround(); sipround(); sipround(); sipround();
+            return v0 ^ v1 ^ v2 ^ v3;
+          };
+
+          // HKDF-lite: derive 256-bit XXTEA key + 128-bit MAC key from passphrase
+          struct SbKeys {
+            std::vector<uint32_t> xxtea; // 8 words
+            uint64_t mac_k0, mac_k1;
+          };
+          auto sb_derive = [&](const std::string &passphrase) -> SbKeys {
+            // Extract: two 64-bit PRK words using domain-separated siphash
+            const uint8_t *p = reinterpret_cast<const uint8_t *>(passphrase.data());
+            uint64_t prk0 = siphash(p, passphrase.size(), 0x5362456e63727970ULL, 0x744b657944657231ULL);
+            uint64_t prk1 = siphash(p, passphrase.size(), 0x5362456e63727970ULL, 0x744b657944657232ULL);
+            // Expand: 8 x 32-bit XXTEA key words
+            std::vector<uint32_t> xk(8);
+            for (uint8_t i = 0; i < 8; i++) {
+              uint64_t h = siphash(&i, 1, prk0, prk1);
+              xk[i] = static_cast<uint32_t>(h & 0xFFFFFFFFu);
+            }
+            // MAC key: separate domain
+            const uint8_t mac_label[3] = {'m', 'a', 'c'};
+            uint64_t mk0 = siphash(mac_label, 3, prk0, prk1 ^ 0x4d41434b45594031ULL);
+            uint64_t mk1 = siphash(mac_label, 3, prk0, prk1 ^ 0x4d41434b45594032ULL);
+            return SbKeys{xk, mk0, mk1};
+          };
+
+          auto xxtea_transform = [](std::vector<uint32_t> &v, const std::vector<uint32_t> &k, bool encrypt) {
+            const size_t n = v.size();
+            if (n < 2) {
+              return;
+            }
+            auto mx = [&](uint32_t sum, uint32_t y, uint32_t z, size_t p, uint32_t e) {
+              return (((z >> 5) ^ (y << 2)) + ((y >> 3) ^ (z << 4))) ^ ((sum ^ y) + (k[(p & 7) ^ e] ^ z));
+            };
+            if (encrypt) {
+              uint32_t rounds = 6 + 52 / n;
+              uint32_t sum = 0;
+              uint32_t z = v[n - 1];
+              while (rounds--) {
+                sum += 0x9E3779B9;
+                uint32_t e = (sum >> 2) & 7;
+                for (size_t p = 0; p < n - 1; p++) {
+                  uint32_t y = v[p + 1];
+                  z = v[p] += mx(sum, y, z, p, e);
+                }
+                uint32_t y = v[0];
+                z = v[n - 1] += mx(sum, y, z, n - 1, e);
+              }
+            } else {
+              uint32_t rounds = 6 + 52 / n;
+              uint32_t sum = rounds * 0x9E3779B9;
+              uint32_t y = v[0];
+              while (sum) {
+                uint32_t e = (sum >> 2) & 7;
+                for (size_t p = n - 1; p > 0; p--) {
+                  uint32_t z = v[p - 1];
+                  y = v[p] -= mx(sum, y, z, p, e);
+                }
+                uint32_t z = v[n - 1];
+                y = v[0] -= mx(sum, y, z, 0, e);
+                sum -= 0x9E3779B9;
+              }
+            }
+          };
+
+          auto from_hex = [](const std::string &input, std::vector<uint8_t> &output) {
+            if ((input.size() % 2) != 0) {
+              return false;
+            }
+            output.clear();
+            output.reserve(input.size() / 2);
+            auto nibble = [](char c) -> int {
+              if (c >= '0' && c <= '9') return c - '0';
+              if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+              if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+              return -1;
+            };
+            for (size_t i = 0; i < input.size(); i += 2) {
+              int hi = nibble(input[i]);
+              int lo = nibble(input[i + 1]);
+              if (hi < 0 || lo < 0) {
+                return false;
+              }
+              output.push_back(static_cast<uint8_t>((hi << 4) | lo));
+            }
+            return true;
+          };
+          // ── END SIGNAL BUS CRYPTO ────────────────────────────────────────────
+
+          // Decrypt and verify MAC
+          // Block layout: [4-byte LE length][message][4-byte nonce][4-byte truncated MAC]
+          auto decrypt_payload = [&](const std::string &cipher_hex, std::string &plain) {
+            std::vector<uint8_t> bytes;
+            if (!from_hex(cipher_hex, bytes)) {
+              return false;
+            }
+            if ((bytes.size() % 4) != 0 || bytes.size() < 12) {
+              return false;
+            }
+            std::vector<uint32_t> words(bytes.size() / 4, 0);
+            for (size_t i = 0; i < words.size(); i++) {
+              words[i] = static_cast<uint32_t>(bytes[i * 4]) |
+                         (static_cast<uint32_t>(bytes[i * 4 + 1]) << 8) |
+                         (static_cast<uint32_t>(bytes[i * 4 + 2]) << 16) |
+                         (static_cast<uint32_t>(bytes[i * 4 + 3]) << 24);
+            }
+            SbKeys keys = sb_derive(secret);
+            xxtea_transform(words, keys.xxtea, false);
+            std::vector<uint8_t> decoded(words.size() * 4, 0);
+            for (size_t i = 0; i < words.size(); i++) {
+              decoded[i * 4]     = words[i] & 0xFF;
+              decoded[i * 4 + 1] = (words[i] >> 8) & 0xFF;
+              decoded[i * 4 + 2] = (words[i] >> 16) & 0xFF;
+              decoded[i * 4 + 3] = (words[i] >> 24) & 0xFF;
+            }
+            // Layout: [4-byte length][message][4-byte nonce][4-byte MAC]
+            if (decoded.size() < 12) {
+              return false;
+            }
+            uint32_t length = static_cast<uint32_t>(decoded[0]) |
+                              (static_cast<uint32_t>(decoded[1]) << 8) |
+                              (static_cast<uint32_t>(decoded[2]) << 16) |
+                              (static_cast<uint32_t>(decoded[3]) << 24);
+            // Need: 4 (length field) + length (message) + 4 (nonce) + 4 (mac) <= decoded.size()
+            if (length + 12 > decoded.size()) {
+              return false;
+            }
+            // Verify MAC: covers [length field + message + nonce] (everything except MAC bytes)
+            size_t mac_cover_len = 4 + length + 4;
+            uint64_t computed_mac = siphash(decoded.data(), mac_cover_len, keys.mac_k0, keys.mac_k1);
+            uint32_t computed_mac32 = static_cast<uint32_t>(computed_mac & 0xFFFFFFFFu);
+            size_t mac_offset = 4 + length + 4;
+            uint32_t stored_mac32 = static_cast<uint32_t>(decoded[mac_offset]) |
+                                    (static_cast<uint32_t>(decoded[mac_offset + 1]) << 8) |
+                                    (static_cast<uint32_t>(decoded[mac_offset + 2]) << 16) |
+                                    (static_cast<uint32_t>(decoded[mac_offset + 3]) << 24);
+            if (computed_mac32 != stored_mac32) {
+              return false;
+            }
+            plain.assign(decoded.begin() + 4, decoded.begin() + 4 + length);
+            return true;
+          };
+
+          size_t sender_end = payload.find('|', 4);
+          size_t boot_end = sender_end == std::string::npos ? std::string::npos : payload.find('|', sender_end + 1);
+          size_t counter_end = boot_end == std::string::npos ? std::string::npos : payload.find('|', boot_end + 1);
+          if (sender_end == std::string::npos || boot_end == std::string::npos || counter_end == std::string::npos) {
+            ESP_LOGW("signal_bus", "Rejected malformed signal bus packet");
             return;
           }
 
-          const std::string target_address = payload.substr(6, address_end - 6);
-          const std::string action = payload.substr(address_end + 1);
+          const std::string sender = payload.substr(4, sender_end - 4);
+          const std::string boot_str = payload.substr(sender_end + 1, boot_end - sender_end - 1);
+          const std::string counter_str = payload.substr(boot_end + 1, counter_end - boot_end - 1);
+          const std::string cipher_hex = payload.substr(counter_end + 1);
+
+          uint32_t boot_id = 0;
+          uint32_t counter = 0;
+          try {
+            boot_id = static_cast<uint32_t>(std::stoul(boot_str));
+            counter = static_cast<uint32_t>(std::stoul(counter_str));
+          } catch (...) {
+            ESP_LOGW("signal_bus", "Rejected signal bus packet with invalid boot/counter fields");
+            return;
+          }
+
+          std::string plain;
+          if (!decrypt_payload(cipher_hex, plain)) {
+            ESP_LOGW("signal_bus", "Rejected signal bus packet from %s: decrypt/MAC failed", sender.c_str());
+            return;
+          }
+          if (plain.rfind("relay|", 0) != 0) {
+            ESP_LOGW("signal_bus", "Rejected signal bus packet from %s: invalid command body", sender.c_str());
+            return;
+          }
+
+          const size_t address_end = plain.find('|', 6);
+          if (address_end == std::string::npos) {
+            ESP_LOGW("signal_bus", "Rejected signal bus packet from %s: invalid relay payload", sender.c_str());
+            return;
+          }
+
+          const std::string target_address = plain.substr(6, address_end - 6);
+          const std::string action = plain.substr(address_end + 1);
 
           bool matched = false;
           size_t start = 0;
@@ -224,29 +484,59 @@ udp:
             if (end == std::string::npos) {
               end = local_addresses.size();
             }
-
-            std::string candidate = local_addresses.substr(start, end - start);
-            const auto left = candidate.find_first_not_of(" \t");
-            if (left != std::string::npos) {
-              const auto right = candidate.find_last_not_of(" \t");
-              candidate = candidate.substr(left, right - left + 1);
-              if (candidate == target_address) {
-                matched = true;
-                break;
-              }
+            std::string candidate = trim(local_addresses.substr(start, end - start));
+            if (!candidate.empty() && candidate == target_address) {
+              matched = true;
+              break;
             }
-
             if (end == local_addresses.size()) {
               break;
             }
             start = end + 1;
           }
-
           if (!matched) {
             return;
           }
 
-          ESP_LOGI("signal_bus", "Received relay signal for '%s': %s", target_address.c_str(), action.c_str());
+          static std::vector<std::string> replay_senders(8);
+          static std::vector<uint32_t> replay_boot_ids(8, 0);
+          static std::vector<uint32_t> replay_counters(8, 0);
+          static std::vector<uint8_t> replay_used(8, 0);
+
+          int slot = -1;
+          int empty_slot = -1;
+          for (size_t i = 0; i < replay_used.size(); i++) {
+            if (!replay_used[i]) {
+              if (empty_slot < 0) empty_slot = static_cast<int>(i);
+              continue;
+            }
+            if (replay_senders[i] == sender) {
+              slot = static_cast<int>(i);
+              break;
+            }
+          }
+
+          if (slot < 0) {
+            if (empty_slot < 0) {
+              ESP_LOGW("signal_bus", "Rejected signal bus packet from %s: sender table full", sender.c_str());
+              return;
+            }
+            slot = empty_slot;
+            replay_used[slot] = 1;
+            replay_senders[slot] = sender;
+            replay_boot_ids[slot] = boot_id;
+            replay_counters[slot] = counter;
+          } else if (replay_boot_ids[slot] != boot_id) {
+            replay_boot_ids[slot] = boot_id;
+            replay_counters[slot] = counter;
+          } else if (counter <= replay_counters[slot]) {
+            ESP_LOGW("signal_bus", "Rejected replayed signal bus packet from %s: counter=%u last=%u", sender.c_str(), counter, replay_counters[slot]);
+            return;
+          } else {
+            replay_counters[slot] = counter;
+          }
+
+          ESP_LOGD("signal_bus", "Accepted signal from %s for '%s': %s", sender.c_str(), target_address.c_str(), action.c_str());
 
           if (action == "on") {
             id(relay).turn_on();
@@ -492,6 +782,193 @@ select:
 # ===================================
 
 script:
+  - id: send_signal_bus
+    mode: queued
+    parameters:
+      target_address: string
+      target_action: string
+    then:
+      - if:
+          condition:
+            lambda: 'return !target_address.empty() && strlen("${signal_bus_encryption_key}") > 0;'
+          then:
+            - udp.write:
+                id: signal_bus_udp
+                data: !lambda |-
+                  // ── SIGNAL BUS CRYPTO (keep identical in send and receive) ──────────
+                  // If you fix a bug here, apply the same fix in on_receive lambda.
+
+                  // SipHash-2-4: 128-bit key (k0, k1 as uint64), arbitrary input -> uint64
+                  auto siphash = [](const uint8_t *in, size_t inlen, uint64_t k0, uint64_t k1) -> uint64_t {
+                    auto rotl64 = [](uint64_t x, int b) -> uint64_t { return (x << b) | (x >> (64 - b)); };
+                    uint64_t v0 = k0 ^ 0x736f6d6570736575ULL;
+                    uint64_t v1 = k1 ^ 0x646f72616e646f6dULL;
+                    uint64_t v2 = k0 ^ 0x6c7967656e657261ULL;
+                    uint64_t v3 = k1 ^ 0x7465646279746573ULL;
+                    auto sipround = [&]() {
+                      v0 += v1; v1 = rotl64(v1, 13); v1 ^= v0; v0 = rotl64(v0, 32);
+                      v2 += v3; v3 = rotl64(v3, 16); v3 ^= v2;
+                      v0 += v3; v3 = rotl64(v3, 21); v3 ^= v0;
+                      v2 += v1; v1 = rotl64(v1, 17); v1 ^= v2; v2 = rotl64(v2, 32);
+                    };
+                    const uint8_t *end = in + inlen - (inlen % 8);
+                    for (const uint8_t *p = in; p < end; p += 8) {
+                      uint64_t m = static_cast<uint64_t>(p[0])        | (static_cast<uint64_t>(p[1]) << 8)  |
+                                   (static_cast<uint64_t>(p[2]) << 16) | (static_cast<uint64_t>(p[3]) << 24) |
+                                   (static_cast<uint64_t>(p[4]) << 32) | (static_cast<uint64_t>(p[5]) << 40) |
+                                   (static_cast<uint64_t>(p[6]) << 48) | (static_cast<uint64_t>(p[7]) << 56);
+                      v3 ^= m; sipround(); sipround(); v0 ^= m;
+                    }
+                    uint64_t last = static_cast<uint64_t>(inlen & 0xFF) << 56;
+                    const uint8_t *r = end;
+                    switch (inlen & 7) {
+                      case 7: last |= static_cast<uint64_t>(r[6]) << 48; // fall through
+                      case 6: last |= static_cast<uint64_t>(r[5]) << 40; // fall through
+                      case 5: last |= static_cast<uint64_t>(r[4]) << 32; // fall through
+                      case 4: last |= static_cast<uint64_t>(r[3]) << 24; // fall through
+                      case 3: last |= static_cast<uint64_t>(r[2]) << 16; // fall through
+                      case 2: last |= static_cast<uint64_t>(r[1]) << 8;  // fall through
+                      case 1: last |= static_cast<uint64_t>(r[0]);       // fall through
+                      default: break;
+                    }
+                    v3 ^= last; sipround(); sipround(); v0 ^= last;
+                    v2 ^= 0xFF; sipround(); sipround(); sipround(); sipround();
+                    return v0 ^ v1 ^ v2 ^ v3;
+                  };
+
+                  // HKDF-lite: derive 256-bit XXTEA key + 128-bit MAC key from passphrase
+                  struct SbKeys {
+                    std::vector<uint32_t> xxtea; // 8 words
+                    uint64_t mac_k0, mac_k1;
+                  };
+                  auto sb_derive = [&](const std::string &passphrase) -> SbKeys {
+                    const uint8_t *p = reinterpret_cast<const uint8_t *>(passphrase.data());
+                    uint64_t prk0 = siphash(p, passphrase.size(), 0x5362456e63727970ULL, 0x744b657944657231ULL);
+                    uint64_t prk1 = siphash(p, passphrase.size(), 0x5362456e63727970ULL, 0x744b657944657232ULL);
+                    std::vector<uint32_t> xk(8);
+                    for (uint8_t i = 0; i < 8; i++) {
+                      uint64_t h = siphash(&i, 1, prk0, prk1);
+                      xk[i] = static_cast<uint32_t>(h & 0xFFFFFFFFu);
+                    }
+                    const uint8_t mac_label[3] = {'m', 'a', 'c'};
+                    uint64_t mk0 = siphash(mac_label, 3, prk0, prk1 ^ 0x4d41434b45594031ULL);
+                    uint64_t mk1 = siphash(mac_label, 3, prk0, prk1 ^ 0x4d41434b45594032ULL);
+                    return SbKeys{xk, mk0, mk1};
+                  };
+
+                  auto xxtea_transform = [](std::vector<uint32_t> &v, const std::vector<uint32_t> &k, bool encrypt) {
+                    const size_t n = v.size();
+                    if (n < 2) {
+                      return;
+                    }
+                    auto mx = [&](uint32_t sum, uint32_t y, uint32_t z, size_t p, uint32_t e) {
+                      return (((z >> 5) ^ (y << 2)) + ((y >> 3) ^ (z << 4))) ^ ((sum ^ y) + (k[(p & 7) ^ e] ^ z));
+                    };
+                    if (encrypt) {
+                      uint32_t rounds = 6 + 52 / n;
+                      uint32_t sum = 0;
+                      uint32_t z = v[n - 1];
+                      while (rounds--) {
+                        sum += 0x9E3779B9;
+                        uint32_t e = (sum >> 2) & 7;
+                        for (size_t p = 0; p < n - 1; p++) {
+                          uint32_t y = v[p + 1];
+                          z = v[p] += mx(sum, y, z, p, e);
+                        }
+                        uint32_t y = v[0];
+                        z = v[n - 1] += mx(sum, y, z, n - 1, e);
+                      }
+                    } else {
+                      uint32_t rounds = 6 + 52 / n;
+                      uint32_t sum = rounds * 0x9E3779B9;
+                      uint32_t y = v[0];
+                      while (sum) {
+                        uint32_t e = (sum >> 2) & 7;
+                        for (size_t p = n - 1; p > 0; p--) {
+                          uint32_t z = v[p - 1];
+                          y = v[p] -= mx(sum, y, z, p, e);
+                        }
+                        uint32_t z = v[n - 1];
+                        y = v[0] -= mx(sum, y, z, 0, e);
+                        sum -= 0x9E3779B9;
+                      }
+                    }
+                  };
+
+                  auto to_hex = [](const std::vector<uint8_t> &input) {
+                    static const char *digits = "0123456789abcdef";
+                    std::string output;
+                    output.reserve(input.size() * 2);
+                    for (uint8_t byte : input) {
+                      output.push_back(digits[(byte >> 4) & 0x0F]);
+                      output.push_back(digits[byte & 0x0F]);
+                    }
+                    return output;
+                  };
+                  // ── END SIGNAL BUS CRYPTO ────────────────────────────────────────────
+
+                  // Build plaintext block: [4-byte LE length][message][4-byte nonce][4-byte MAC]
+                  std::string plain = std::string("relay|") + target_address + "|" + target_action;
+                  const uint32_t length = static_cast<uint32_t>(plain.size());
+                  const uint32_t nonce = esp_random();
+
+                  // Compute MAC over [length field + message + nonce]
+                  SbKeys keys = sb_derive("${signal_bus_encryption_key}");
+                  std::vector<uint8_t> mac_input(4 + plain.size() + 4, 0);
+                  mac_input[0] = length & 0xFF;
+                  mac_input[1] = (length >> 8) & 0xFF;
+                  mac_input[2] = (length >> 16) & 0xFF;
+                  mac_input[3] = (length >> 24) & 0xFF;
+                  for (size_t i = 0; i < plain.size(); i++) {
+                    mac_input[4 + i] = static_cast<uint8_t>(plain[i]);
+                  }
+                  size_t nonce_off = 4 + plain.size();
+                  mac_input[nonce_off]     = nonce & 0xFF;
+                  mac_input[nonce_off + 1] = (nonce >> 8) & 0xFF;
+                  mac_input[nonce_off + 2] = (nonce >> 16) & 0xFF;
+                  mac_input[nonce_off + 3] = (nonce >> 24) & 0xFF;
+                  uint64_t mac64 = siphash(mac_input.data(), mac_input.size(), keys.mac_k0, keys.mac_k1);
+                  uint32_t mac32 = static_cast<uint32_t>(mac64 & 0xFFFFFFFFu);
+
+                  // Assemble full plaintext block
+                  std::vector<uint8_t> bytes(mac_input.size() + 4, 0);
+                  for (size_t i = 0; i < mac_input.size(); i++) {
+                    bytes[i] = mac_input[i];
+                  }
+                  bytes[mac_input.size()]     = mac32 & 0xFF;
+                  bytes[mac_input.size() + 1] = (mac32 >> 8) & 0xFF;
+                  bytes[mac_input.size() + 2] = (mac32 >> 16) & 0xFF;
+                  bytes[mac_input.size() + 3] = (mac32 >> 24) & 0xFF;
+
+                  // Pad to multiple of 4, minimum 8 bytes
+                  while ((bytes.size() % 4) != 0) {
+                    bytes.push_back(0);
+                  }
+                  if (bytes.size() < 8) {
+                    bytes.resize(8, 0);
+                  }
+
+                  std::vector<uint32_t> words(bytes.size() / 4, 0);
+                  for (size_t i = 0; i < words.size(); i++) {
+                    words[i] = static_cast<uint32_t>(bytes[i * 4]) |
+                               (static_cast<uint32_t>(bytes[i * 4 + 1]) << 8) |
+                               (static_cast<uint32_t>(bytes[i * 4 + 2]) << 16) |
+                               (static_cast<uint32_t>(bytes[i * 4 + 3]) << 24);
+                  }
+                  xxtea_transform(words, keys.xxtea, true);
+
+                  std::vector<uint8_t> encrypted(words.size() * 4, 0);
+                  for (size_t i = 0; i < words.size(); i++) {
+                    encrypted[i * 4]     = words[i] & 0xFF;
+                    encrypted[i * 4 + 1] = (words[i] >> 8) & 0xFF;
+                    encrypted[i * 4 + 2] = (words[i] >> 16) & 0xFF;
+                    encrypted[i * 4 + 3] = (words[i] >> 24) & 0xFF;
+                  }
+
+                  id(signal_bus_counter) += 1;
+                  return std::string("sb2|${device_name}|") + std::to_string(id(signal_bus_boot_id)) + "|" +
+                         std::to_string(id(signal_bus_counter)) + "|" + to_hex(encrypted);
+
   - id: ble_mode_disabled
     mode: restart
     then:
@@ -536,11 +1013,12 @@ script:
                   message: "Long press detected"
             - if:
                 condition:
-                  lambda: 'return strlen("${signal_switch_long_address}") > 0;'
+                  lambda: 'return strlen("${signal_switch_long_address}") > 0 && strlen("${signal_bus_encryption_key}") > 0;'
                 then:
-                  - udp.write:
-                      id: signal_bus_udp
-                      data: "relay|${signal_switch_long_address}|${signal_switch_long_action}"
+                  - script.execute:
+                      id: send_signal_bus
+                      target_address: "${signal_switch_long_address}"
+                      target_action: "${signal_switch_long_action}"
 
 # ===================================
 # Output Control
@@ -651,11 +1129,13 @@ binary_sensor:
               lambda: |-
                 const auto mode = id(switch_mode).current_option();
                 return strlen("${signal_switch_press_address}") > 0 &&
+                       strlen("${signal_bus_encryption_key}") > 0 &&
                        (mode == "Edge (Toggle)" || mode == "Follow");
             then:
-              - udp.write:
-                  id: signal_bus_udp
-                  data: "relay|${signal_switch_press_address}|${signal_switch_press_action}"
+              - script.execute:
+                  id: send_signal_bus
+                  target_address: "${signal_switch_press_address}"
+                  target_action: "${signal_switch_press_action}"
         
         # Long-press detection - non-blocking script execution
         - if:
@@ -700,11 +1180,12 @@ binary_sensor:
             }
         - if:
             condition:
-              lambda: 'return strlen("${signal_switch_release_address}") > 0 && id(switch_mode).current_option() == "Follow";'
+              lambda: 'return strlen("${signal_switch_release_address}") > 0 && strlen("${signal_bus_encryption_key}") > 0 && id(switch_mode).current_option() == "Follow";'
             then:
-              - udp.write:
-                  id: signal_bus_udp
-                  data: "relay|${signal_switch_release_address}|${signal_switch_release_action}"
+              - script.execute:
+                  id: send_signal_bus
+                  target_address: "${signal_switch_release_address}"
+                  target_action: "${signal_switch_release_action}"
 
     # MULTI-CLICK DETECTION (native)
     on_multi_click:
@@ -735,11 +1216,12 @@ binary_sensor:
                       message: "Single click detected"
                 - if:
                     condition:
-                      lambda: 'return strlen("${signal_switch_single_address}") > 0;'
+                      lambda: 'return strlen("${signal_switch_single_address}") > 0 && strlen("${signal_bus_encryption_key}") > 0;'
                     then:
-                      - udp.write:
-                          id: signal_bus_udp
-                          data: "relay|${signal_switch_single_address}|${signal_switch_single_action}"
+                      - script.execute:
+                          id: send_signal_bus
+                          target_address: "${signal_switch_single_address}"
+                          target_action: "${signal_switch_single_action}"
         invalid_cooldown: 0.5s
 
       # Double click
@@ -771,11 +1253,12 @@ binary_sensor:
                       message: "Double click detected"
                 - if:
                     condition:
-                      lambda: 'return strlen("${signal_switch_double_address}") > 0;'
+                      lambda: 'return strlen("${signal_switch_double_address}") > 0 && strlen("${signal_bus_encryption_key}") > 0;'
                     then:
-                      - udp.write:
-                          id: signal_bus_udp
-                          data: "relay|${signal_switch_double_address}|${signal_switch_double_action}"
+                      - script.execute:
+                          id: send_signal_bus
+                          target_address: "${signal_switch_double_address}"
+                          target_action: "${signal_switch_double_action}"
         invalid_cooldown: 0.5s
 
       # Triple click
@@ -813,11 +1296,12 @@ binary_sensor:
                       message: "Triple click detected"
                 - if:
                     condition:
-                      lambda: 'return strlen("${signal_switch_triple_address}") > 0;'
+                      lambda: 'return strlen("${signal_switch_triple_address}") > 0 && strlen("${signal_bus_encryption_key}") > 0;'
                     then:
-                      - udp.write:
-                          id: signal_bus_udp
-                          data: "relay|${signal_switch_triple_address}|${signal_switch_triple_action}"
+                      - script.execute:
+                          id: send_signal_bus
+                          target_address: "${signal_switch_triple_address}"
+                          target_action: "${signal_switch_triple_action}"
         invalid_cooldown: 0.5s
 
   # Physical button input (GPIO 1)
