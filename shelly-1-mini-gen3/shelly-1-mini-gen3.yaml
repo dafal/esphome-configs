@@ -18,35 +18,61 @@ substitutions:
   # =============================================================
   # Signal Bus configuration
   # =============================================================
-  # Shared site key is required on every sender and relay.
-  # Put it in secrets and reuse the same value across the site.
-  #   signal_bus_encryption_key: !secret signal_bus_encryption_key
+  # Shared site key:
+  #   Every sender and relay in the same site must use the same
+  #   signal_bus_encryption_key value.
+  #
+  #   Example:
+  #     signal_bus_encryption_key: !secret signal_bus_encryption_key
+  #
+  #   If the key is empty, signal-bus send/receive is disabled.
+  #
+  # Address matching:
+  #   Relay address matching is exact and case-sensitive.
+  #   For comma-separated relay addresses, spaces around commas are ignored.
   #
   # Common setup: one switch toggles one relay
-  #   switch: signal_switch_single_address: "kitchen_main"
-  #   switch: signal_switch_single_action: "toggle"
-  #   relay:  signal_relay_addresses: "kitchen_main"
+  #   switch:
+  #     signal_bus_encryption_key: !secret signal_bus_encryption_key
+  #     signal_switch_single_address: "kitchen_main"
+  #     signal_switch_single_action: "toggle"
+  #
+  #   relay:
+  #     signal_bus_encryption_key: !secret signal_bus_encryption_key
+  #     signal_relay_addresses: "kitchen_main"
   #
   # Follow setup: press turns ON, release turns OFF
-  #   switch: signal_switch_press_address: "hall_light"
-  #   switch: signal_switch_press_action: "on"
-  #   switch: signal_switch_release_address: "hall_light"
-  #   switch: signal_switch_release_action: "off"
-  #   relay:  signal_relay_addresses: "hall_light"
+  #   switch:
+  #     signal_bus_encryption_key: !secret signal_bus_encryption_key
+  #     signal_switch_press_address: "hall_light"
+  #     signal_switch_press_action: "on"
+  #     signal_switch_release_address: "hall_light"
+  #     signal_switch_release_action: "off"
+  #
+  #   relay:
+  #     signal_bus_encryption_key: !secret signal_bus_encryption_key
+  #     signal_relay_addresses: "hall_light"
+  #
+  # Multi-address relay example:
+  #   signal_relay_addresses: "kitchen_main,hall_light,all_lights"
 
   # Relay listener: this relay reacts to UDP signals sent to any of these
-  # comma-separated addresses. Leave empty to disable remote control.
-  # Example: "kitchen_main,hall_light,all_lights"
+  # comma-separated addresses. Exact match; spaces around commas are ignored.
+  # Leave empty to disable remote control.
   signal_bus_encryption_key: ""
   signal_relay_addresses: ""
 
-  # Switch press/release events (used in Edge/Follow modes)
+  # Switch press/release events.
+  # Used only in Edge (Toggle) and Follow modes.
+  # Leaving an address empty disables only that event.
   signal_switch_press_address: ""
   signal_switch_press_action: "on"
   signal_switch_release_address: ""
   signal_switch_release_action: "off"
 
-  # Switch click events (used in Multi-Click / Smart Multi-Click modes)
+  # Switch click events.
+  # Used only in Multi-Click and Smart Multi-Click modes.
+  # Leaving an address empty disables only that event.
   signal_switch_single_address: ""
   signal_switch_single_action: "toggle"
   signal_switch_double_address: ""
@@ -122,11 +148,13 @@ esphome:
             id(pulse_counter_sensor).publish_state(id(pulse_counter));
           }
 
+          // Start a new signal-bus sender session on every boot.
+          // Receivers use (sender, boot_id, counter) to reject stale packets.
           id(signal_bus_boot_id) = esp_random();
           id(signal_bus_counter) = 0;
           ESP_LOGI("signal_bus", "Signal bus session started: boot_id=%u", id(signal_bus_boot_id));
           if (strlen("${signal_bus_encryption_key}") == 0) {
-            ESP_LOGW("signal_bus", "Signal bus encryption key is empty; send and receive are disabled");
+            ESP_LOGW("signal_bus", "Signal bus encryption key is empty; signal bus send/receive is disabled");
           }
 
           auto saved_ble = id(ble_scan_mode).current_option();
@@ -205,22 +233,31 @@ mdns:
 # Direct device-to-device communication over UDP LAN.
 # Requires the same shared site key on every sender and relay.
 #
-# Payload format: sb2|<sender>|<boot_id>|<counter>|<ciphertext_hex>
+# Packet format:
+#   sb2|<sender>|<boot_id>|<counter>|<ciphertext_hex>
 #
 # Encrypted block layout (XXTEA):
-#   [4-byte LE length][message bytes][4-byte random nonce][4-byte truncated SipHash MAC]
-#   Message: relay|<address>|<action>
+#   [4-byte LE length][message bytes][4-byte random nonce][4-byte truncated MAC]
+#   message: relay|<address>|<action>
 #
-# Security properties:
-#   - Confidentiality: XXTEA with 256-bit key derived via HKDF-lite (SipHash PRF)
-#   - Integrity/authenticity: truncated SipHash-2-4 MAC with a separate derived key
-#   - Replay protection: per-sender (boot_id, counter) window, 8-slot table
-#   - Nonce: 4 bytes of esp_random() per packet prevents ciphertext pattern analysis
+# Security notes:
+#   - The relay command body is encrypted before UDP transmission.
+#   - Integrity is checked with a truncated SipHash MAC stored inside the
+#     encrypted block.
+#   - Replay protection is tracked per sender using (boot_id, counter).
+#   - The relay remembers up to 8 senders in RAM.
 #
-# NOTE: The crypto helpers (siphash / sb_derive / xxtea_transform / hex utils) are
-# intentionally duplicated between the send_signal_bus lambda and the on_receive lambda
-# because ESPHome YAML does not support shared lambda code.
-# If you fix a bug in one copy you MUST apply the same fix to the other.
+# Operational limits:
+#   - Replay state is not persisted across relay reboot.
+#   - A relay reboot clears the replay table for all senders.
+#   - If more than 8 different senders talk to this relay, additional unknown
+#     senders are rejected until a reboot.
+#   - sender / boot_id / counter are transport metadata and must stay aligned
+#     with the encrypted payload logic below.
+#
+# Compatibility:
+#   - Only sb2 packets are accepted.
+#   - Older signal-bus packet formats are ignored.
 
 udp:
   id: signal_bus_udp
@@ -255,7 +292,14 @@ udp:
           };
 
           // ── SIGNAL BUS CRYPTO (keep identical in send and receive) ──────────
-          // If you fix a bug here, apply the same fix in send_signal_bus lambda.
+          // NOTE: The crypto helpers below are intentionally duplicated in send and receive.
+          // If you change one copy, you MUST make the same change in the other copy.
+          // The following must stay compatible on both sides:
+          //   - SipHash implementation
+          //   - key derivation
+          //   - encrypted block layout
+          //   - MAC coverage
+          //   - packet version string (sb2)
 
           // SipHash-2-4: 128-bit key (k0, k1 as uint64), arbitrary input -> uint64
           auto siphash = [](const uint8_t *in, size_t inlen, uint64_t k0, uint64_t k1) -> uint64_t {
@@ -486,6 +530,8 @@ udp:
           const std::string target_address = plain.substr(6, address_end - 6);
           const std::string action = plain.substr(address_end + 1);
 
+          // Address matching is exact and case-sensitive.
+          // Comma-separated relay addresses are trimmed before comparison.
           bool matched = false;
           size_t start = 0;
           while (start <= local_addresses.size()) {
@@ -507,6 +553,13 @@ udp:
             return;
           }
 
+          // Replay table: up to 8 senders tracked in RAM.
+          // Each slot stores sender name, current boot_id, and highest accepted counter.
+          // Accept rules:
+          //   - new sender: accept and allocate slot
+          //   - same sender, new boot_id: accept and reset sender session state
+          //   - same sender, higher counter: accept
+          //   - same sender, same/lower counter: reject as replay
           static std::vector<std::string> replay_senders(8);
           static std::vector<uint32_t> replay_boot_ids(8, 0);
           static std::vector<uint32_t> replay_counters(8, 0);
@@ -792,6 +845,8 @@ select:
 
 script:
   - id: send_signal_bus
+    # Builds an encrypted sb2 packet for relay|<address>|<action>
+    # and increments the sender-side monotonic counter.
     mode: queued
     parameters:
       target_address: string
@@ -805,7 +860,14 @@ script:
                 id: signal_bus_udp
                 data: !lambda |-
                   // ── SIGNAL BUS CRYPTO (keep identical in send and receive) ──────────
-                  // If you fix a bug here, apply the same fix in on_receive lambda.
+                  // NOTE: The crypto helpers below are intentionally duplicated in send and receive.
+                  // If you change one copy, you MUST make the same change in the other copy.
+                  // The following must stay compatible on both sides:
+                  //   - SipHash implementation
+                  //   - key derivation
+                  //   - encrypted block layout
+                  //   - MAC coverage
+                  //   - packet version string (sb2)
 
                   // SipHash-2-4: 128-bit key (k0, k1 as uint64), arbitrary input -> uint64
                   auto siphash = [](const uint8_t *in, size_t inlen, uint64_t k0, uint64_t k1) -> uint64_t {
