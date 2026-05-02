@@ -12,7 +12,7 @@ substitutions:
   device_name: shelly-1-mini-gen3
   friendly_name: Shelly 1 Mini Gen3
   project_name: dafal_esphome-configs.shelly_1_mini_gen3
-  project_version: 1.6.0
+  project_version: 1.7.0
   area: ""
 
   # =============================================================
@@ -26,6 +26,12 @@ substitutions:
   #     signal_bus_encryption_key: !secret signal_bus_encryption_key
   #
   #   If the key is empty, signal-bus send/receive is disabled.
+  #
+  # Runtime configuration:
+  #   The signal_bus_encryption_key stays compile-time / secret-based.
+  #   Relay addresses and switch event routing can be edited at runtime from
+  #   Home Assistant or the ESPHome web UI through text/select config entities.
+  #   The substitutions below are first-boot defaults for those entities.
   #
   # Address matching:
   #   Relay address matching is exact and case-sensitive.
@@ -204,6 +210,14 @@ globals:
     type: uint32_t
     restore_value: false
     initial_value: '0'
+  - id: signal_bus_target_address
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: signal_bus_target_action
+    type: std::string
+    restore_value: false
+    initial_value: '""'
 
 # ===================================
 # Network Configuration
@@ -277,7 +291,7 @@ udp:
             return;
           }
 
-          const std::string local_addresses = "${signal_relay_addresses}";
+          const std::string local_addresses = id(signal_relay_addresses_text).state;
           if (local_addresses.empty()) {
             return;
           }
@@ -765,6 +779,102 @@ number:
     restore_value: true
 
 # ===================================
+# Runtime Signal Bus Text Config
+# ===================================
+
+text:
+  - platform: template
+    name: "Signal Relay Addresses"
+    id: signal_relay_addresses_text
+    icon: "mdi:connection"
+    entity_category: config
+    mode: text
+    optimistic: true
+    restore_value: true
+    initial_value: "${signal_relay_addresses}"
+    set_action:
+      - logger.log:
+          format: "Signal Relay Addresses updated"
+
+  - platform: template
+    name: "Signal Switch Press Address"
+    id: signal_switch_press_address_text
+    icon: "mdi:gesture-tap-button"
+    entity_category: config
+    mode: text
+    optimistic: true
+    restore_value: true
+    initial_value: "${signal_switch_press_address}"
+    set_action:
+      - logger.log:
+          format: "Signal Switch Press Address updated"
+
+  - platform: template
+    name: "Signal Switch Release Address"
+    id: signal_switch_release_address_text
+    icon: "mdi:gesture-tap-button"
+    entity_category: config
+    mode: text
+    optimistic: true
+    restore_value: true
+    initial_value: "${signal_switch_release_address}"
+    set_action:
+      - logger.log:
+          format: "Signal Switch Release Address updated"
+
+  - platform: template
+    name: "Signal Switch Single Address"
+    id: signal_switch_single_address_text
+    icon: "mdi:numeric-1-box-outline"
+    entity_category: config
+    mode: text
+    optimistic: true
+    restore_value: true
+    initial_value: "${signal_switch_single_address}"
+    set_action:
+      - logger.log:
+          format: "Signal Switch Single Address updated"
+
+  - platform: template
+    name: "Signal Switch Double Address"
+    id: signal_switch_double_address_text
+    icon: "mdi:numeric-2-box-outline"
+    entity_category: config
+    mode: text
+    optimistic: true
+    restore_value: true
+    initial_value: "${signal_switch_double_address}"
+    set_action:
+      - logger.log:
+          format: "Signal Switch Double Address updated"
+
+  - platform: template
+    name: "Signal Switch Triple Address"
+    id: signal_switch_triple_address_text
+    icon: "mdi:numeric-3-box-outline"
+    entity_category: config
+    mode: text
+    optimistic: true
+    restore_value: true
+    initial_value: "${signal_switch_triple_address}"
+    set_action:
+      - logger.log:
+          format: "Signal Switch Triple Address updated"
+
+  - platform: template
+    name: "Signal Switch Long Address"
+    id: signal_switch_long_address_text
+    icon: "mdi:gesture-tap-hold"
+    entity_category: config
+    mode: text
+    optimistic: true
+    restore_value: true
+    initial_value: "${signal_switch_long_address}"
+    set_action:
+      - logger.log:
+          format: "Signal Switch Long Address updated"
+
+# ===================================
 # Configuration Selects
 # ===================================
 
@@ -839,8 +949,86 @@ select:
             then:
               - script.execute: ble_mode_passive
 
+  - platform: template
+    name: "Signal Switch Press Action"
+    id: signal_switch_press_action_select
+    icon: "mdi:gesture-tap-button"
+    entity_category: config
+    optimistic: true
+    options:
+      - "on"
+      - "off"
+      - "toggle"
+    initial_option: "${signal_switch_press_action}"
+    restore_value: true
+
+  - platform: template
+    name: "Signal Switch Release Action"
+    id: signal_switch_release_action_select
+    icon: "mdi:gesture-tap-button"
+    entity_category: config
+    optimistic: true
+    options:
+      - "on"
+      - "off"
+      - "toggle"
+    initial_option: "${signal_switch_release_action}"
+    restore_value: true
+
+  - platform: template
+    name: "Signal Switch Single Action"
+    id: signal_switch_single_action_select
+    icon: "mdi:numeric-1-box-outline"
+    entity_category: config
+    optimistic: true
+    options:
+      - "on"
+      - "off"
+      - "toggle"
+    initial_option: "${signal_switch_single_action}"
+    restore_value: true
+
+  - platform: template
+    name: "Signal Switch Double Action"
+    id: signal_switch_double_action_select
+    icon: "mdi:numeric-2-box-outline"
+    entity_category: config
+    optimistic: true
+    options:
+      - "on"
+      - "off"
+      - "toggle"
+    initial_option: "${signal_switch_double_action}"
+    restore_value: true
+
+  - platform: template
+    name: "Signal Switch Triple Action"
+    id: signal_switch_triple_action_select
+    icon: "mdi:numeric-3-box-outline"
+    entity_category: config
+    optimistic: true
+    options:
+      - "on"
+      - "off"
+      - "toggle"
+    initial_option: "${signal_switch_triple_action}"
+    restore_value: true
+
+  - platform: template
+    name: "Signal Switch Long Action"
+    id: signal_switch_long_action_select
+    icon: "mdi:gesture-tap-hold"
+    entity_category: config
+    optimistic: true
+    options:
+      - "on"
+      - "off"
+      - "toggle"
+    initial_option: "${signal_switch_long_action}"
+    restore_value: true
+
 # ===================================
-# BLE Scan Mode Scripts
+# Scripts
 # ===================================
 
 script:
@@ -848,13 +1036,10 @@ script:
     # Builds an encrypted sb2 packet for relay|<address>|<action>
     # and increments the sender-side monotonic counter.
     mode: queued
-    parameters:
-      target_address: string
-      target_action: string
     then:
       - if:
           condition:
-            lambda: 'return !target_address.empty() && strlen("${signal_bus_encryption_key}") > 0;'
+            lambda: 'return !id(signal_bus_target_address).empty() && !id(signal_bus_target_action).empty() && strlen("${signal_bus_encryption_key}") > 0;'
           then:
             - udp.write:
                 id: signal_bus_udp
@@ -979,7 +1164,7 @@ script:
                   // ── END SIGNAL BUS CRYPTO ────────────────────────────────────────────
 
                   // Build plaintext block: [4-byte LE length][message][4-byte nonce][4-byte MAC]
-                  std::string plain = std::string("relay|") + target_address + "|" + target_action;
+                  std::string plain = std::string("relay|") + id(signal_bus_target_address) + "|" + id(signal_bus_target_action);
                   const uint32_t length = static_cast<uint32_t>(plain.size());
                   const uint32_t nonce = esp_random();
 
@@ -1085,12 +1270,13 @@ script:
                   message: "Long press detected"
             - if:
                 condition:
-                  lambda: 'return strlen("${signal_switch_long_address}") > 0 && strlen("${signal_bus_encryption_key}") > 0;'
+                  lambda: 'return !id(signal_switch_long_address_text).state.empty() && strlen("${signal_bus_encryption_key}") > 0;'
                 then:
+                  - lambda: |-
+                      id(signal_bus_target_address) = id(signal_switch_long_address_text).state;
+                      id(signal_bus_target_action) = id(signal_switch_long_action_select).current_option();
                   - script.execute:
                       id: send_signal_bus
-                      target_address: "${signal_switch_long_address}"
-                      target_action: "${signal_switch_long_action}"
 
 # ===================================
 # Output Control
@@ -1200,14 +1386,15 @@ binary_sensor:
             condition:
               lambda: |-
                 const auto mode = id(switch_mode).current_option();
-                return strlen("${signal_switch_press_address}") > 0 &&
+                return !id(signal_switch_press_address_text).state.empty() &&
                        strlen("${signal_bus_encryption_key}") > 0 &&
                        (mode == "Edge (Toggle)" || mode == "Follow");
             then:
+              - lambda: |-
+                  id(signal_bus_target_address) = id(signal_switch_press_address_text).state;
+                  id(signal_bus_target_action) = id(signal_switch_press_action_select).current_option();
               - script.execute:
                   id: send_signal_bus
-                  target_address: "${signal_switch_press_address}"
-                  target_action: "${signal_switch_press_action}"
         
         # Long-press detection - non-blocking script execution
         - if:
@@ -1252,12 +1439,13 @@ binary_sensor:
             }
         - if:
             condition:
-              lambda: 'return strlen("${signal_switch_release_address}") > 0 && strlen("${signal_bus_encryption_key}") > 0 && id(switch_mode).current_option() == "Follow";'
+              lambda: 'return !id(signal_switch_release_address_text).state.empty() && strlen("${signal_bus_encryption_key}") > 0 && id(switch_mode).current_option() == "Follow";'
             then:
+              - lambda: |-
+                  id(signal_bus_target_address) = id(signal_switch_release_address_text).state;
+                  id(signal_bus_target_action) = id(signal_switch_release_action_select).current_option();
               - script.execute:
                   id: send_signal_bus
-                  target_address: "${signal_switch_release_address}"
-                  target_action: "${signal_switch_release_action}"
 
     # MULTI-CLICK DETECTION (native)
     on_multi_click:
@@ -1288,12 +1476,13 @@ binary_sensor:
                       message: "Single click detected"
                 - if:
                     condition:
-                      lambda: 'return strlen("${signal_switch_single_address}") > 0 && strlen("${signal_bus_encryption_key}") > 0;'
+                      lambda: 'return !id(signal_switch_single_address_text).state.empty() && strlen("${signal_bus_encryption_key}") > 0;'
                     then:
+                      - lambda: |-
+                          id(signal_bus_target_address) = id(signal_switch_single_address_text).state;
+                          id(signal_bus_target_action) = id(signal_switch_single_action_select).current_option();
                       - script.execute:
                           id: send_signal_bus
-                          target_address: "${signal_switch_single_address}"
-                          target_action: "${signal_switch_single_action}"
         invalid_cooldown: 0.5s
 
       # Double click
@@ -1325,12 +1514,13 @@ binary_sensor:
                       message: "Double click detected"
                 - if:
                     condition:
-                      lambda: 'return strlen("${signal_switch_double_address}") > 0 && strlen("${signal_bus_encryption_key}") > 0;'
+                      lambda: 'return !id(signal_switch_double_address_text).state.empty() && strlen("${signal_bus_encryption_key}") > 0;'
                     then:
+                      - lambda: |-
+                          id(signal_bus_target_address) = id(signal_switch_double_address_text).state;
+                          id(signal_bus_target_action) = id(signal_switch_double_action_select).current_option();
                       - script.execute:
                           id: send_signal_bus
-                          target_address: "${signal_switch_double_address}"
-                          target_action: "${signal_switch_double_action}"
         invalid_cooldown: 0.5s
 
       # Triple click
@@ -1368,12 +1558,13 @@ binary_sensor:
                       message: "Triple click detected"
                 - if:
                     condition:
-                      lambda: 'return strlen("${signal_switch_triple_address}") > 0 && strlen("${signal_bus_encryption_key}") > 0;'
+                      lambda: 'return !id(signal_switch_triple_address_text).state.empty() && strlen("${signal_bus_encryption_key}") > 0;'
                     then:
+                      - lambda: |-
+                          id(signal_bus_target_address) = id(signal_switch_triple_address_text).state;
+                          id(signal_bus_target_action) = id(signal_switch_triple_action_select).current_option();
                       - script.execute:
                           id: send_signal_bus
-                          target_address: "${signal_switch_triple_address}"
-                          target_action: "${signal_switch_triple_action}"
         invalid_cooldown: 0.5s
 
   # Physical button input (GPIO 1)
