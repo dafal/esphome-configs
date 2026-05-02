@@ -448,12 +448,21 @@ udp:
           const std::string counter_str = payload.substr(boot_end + 1, counter_end - boot_end - 1);
           const std::string cipher_hex = payload.substr(counter_end + 1);
 
+          auto parse_uint32 = [](const std::string &s, uint32_t &out) -> bool {
+            if (s.empty()) return false;
+            uint64_t v = 0;
+            for (char c : s) {
+              if (c < '0' || c > '9') return false;
+              v = v * 10 + (c - '0');
+              if (v > 0xFFFFFFFFu) return false;
+            }
+            out = static_cast<uint32_t>(v);
+            return true;
+          };
+
           uint32_t boot_id = 0;
           uint32_t counter = 0;
-          try {
-            boot_id = static_cast<uint32_t>(std::stoul(boot_str));
-            counter = static_cast<uint32_t>(std::stoul(counter_str));
-          } catch (...) {
+          if (!parse_uint32(boot_str, boot_id) || !parse_uint32(counter_str, counter)) {
             ESP_LOGW("signal_bus", "Rejected signal bus packet with invalid boot/counter fields");
             return;
           }
@@ -966,8 +975,9 @@ script:
                   }
 
                   id(signal_bus_counter) += 1;
-                  return std::string("sb2|${device_name}|") + std::to_string(id(signal_bus_boot_id)) + "|" +
-                         std::to_string(id(signal_bus_counter)) + "|" + to_hex(encrypted);
+                  std::string packet = std::string("sb2|${device_name}|") + std::to_string(id(signal_bus_boot_id)) + "|" +
+                                       std::to_string(id(signal_bus_counter)) + "|" + to_hex(encrypted);
+                  return std::vector<uint8_t>(packet.begin(), packet.end());
 
   - id: ble_mode_disabled
     mode: restart
