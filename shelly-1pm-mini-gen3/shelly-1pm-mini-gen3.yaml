@@ -621,13 +621,15 @@ binary_sensor:
               ESP_LOGI("switch", "Detached mode: release event");
             }
 
+    # Keep click presses below the 800ms long-press threshold and final confirm
+    # releases longer than inter-click gaps to avoid overlapping patterns.
     on_multi_click:
       - timing:
           - state: true
             min_length: 40ms
-            max_length: 1s
+            max_length: 700ms
           - state: false
-            min_length: 300ms
+            min_length: 350ms
         then:
           - if:
               condition:
@@ -650,15 +652,15 @@ binary_sensor:
       - timing:
           - state: true
             min_length: 40ms
-            max_length: 1s
+            max_length: 700ms
           - state: false
             min_length: 40ms
-            max_length: 800ms
+            max_length: 300ms
           - state: true
             min_length: 40ms
-            max_length: 1s
+            max_length: 700ms
           - state: false
-            min_length: 300ms
+            min_length: 350ms
         then:
           - if:
               condition:
@@ -678,21 +680,21 @@ binary_sensor:
       - timing:
           - state: true
             min_length: 40ms
-            max_length: 1s
+            max_length: 700ms
           - state: false
             min_length: 40ms
-            max_length: 800ms
+            max_length: 300ms
           - state: true
             min_length: 40ms
-            max_length: 1s
+            max_length: 700ms
           - state: false
             min_length: 40ms
-            max_length: 800ms
+            max_length: 300ms
           - state: true
             min_length: 40ms
-            max_length: 1s
+            max_length: 700ms
           - state: false
-            min_length: 300ms
+            min_length: 350ms
         then:
           - if:
               condition:
