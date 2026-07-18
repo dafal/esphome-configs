@@ -565,9 +565,13 @@ switch:
             - logger.log: "Relay turned ON"
           else:
             - logger.log: "Relay turn-on rejected: Temperature too high"
-            - switch.template.publish:
-                id: relay
-                state: OFF
+            - if:
+                condition:
+                  lambda: "return !id(relay_last_state);"
+                then:
+                  - switch.template.publish:
+                      id: relay
+                      state: OFF
     turn_off_action:
       - output.turn_off: relay_output
       - switch.template.publish:
