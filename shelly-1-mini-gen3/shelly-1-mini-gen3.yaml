@@ -158,7 +158,7 @@ esphome:
           // Receivers use (sender, boot_id, counter) to reject stale packets.
           id(signal_bus_boot_id) = esp_random();
           id(signal_bus_counter) = 0;
-          ESP_LOGI("signal_bus", "Signal bus session started: boot_id=%u", id(signal_bus_boot_id));
+          ESP_LOGI("signal_bus", "Signal bus session started: boot_id=%" PRIu32, id(signal_bus_boot_id));
           if (strlen("${signal_bus_encryption_key}") == 0) {
             ESP_LOGW("signal_bus", "Signal bus encryption key is empty; signal bus send/receive is disabled");
           }
@@ -341,13 +341,13 @@ udp:
             uint64_t last = static_cast<uint64_t>(inlen & 0xFF) << 56;
             const uint8_t *r = end;
             switch (inlen & 7) {
-              case 7: last |= static_cast<uint64_t>(r[6]) << 48; // fall through
-              case 6: last |= static_cast<uint64_t>(r[5]) << 40; // fall through
-              case 5: last |= static_cast<uint64_t>(r[4]) << 32; // fall through
-              case 4: last |= static_cast<uint64_t>(r[3]) << 24; // fall through
-              case 3: last |= static_cast<uint64_t>(r[2]) << 16; // fall through
-              case 2: last |= static_cast<uint64_t>(r[1]) << 8;  // fall through
-              case 1: last |= static_cast<uint64_t>(r[0]);       // fall through
+              case 7: last |= static_cast<uint64_t>(r[6]) << 48; [[fallthrough]];
+              case 6: last |= static_cast<uint64_t>(r[5]) << 40; [[fallthrough]];
+              case 5: last |= static_cast<uint64_t>(r[4]) << 32; [[fallthrough]];
+              case 4: last |= static_cast<uint64_t>(r[3]) << 24; [[fallthrough]];
+              case 3: last |= static_cast<uint64_t>(r[2]) << 16; [[fallthrough]];
+              case 2: last |= static_cast<uint64_t>(r[1]) << 8;  [[fallthrough]];
+              case 1: last |= static_cast<uint64_t>(r[0]); break;
               default: break;
             }
             v3 ^= last; sipround(); sipround(); v0 ^= last;
@@ -608,7 +608,8 @@ udp:
             replay_boot_ids[slot] = boot_id;
             replay_counters[slot] = counter;
           } else if (counter <= replay_counters[slot]) {
-            ESP_LOGW("signal_bus", "Rejected replayed signal bus packet from %s: counter=%u last=%u", sender.c_str(), counter, replay_counters[slot]);
+            ESP_LOGW("signal_bus", "Rejected replayed signal bus packet from %s: counter=%" PRIu32 " last=%" PRIu32,
+                     sender.c_str(), counter, replay_counters[slot]);
             return;
           } else {
             replay_counters[slot] = counter;
@@ -1080,13 +1081,13 @@ script:
                     uint64_t last = static_cast<uint64_t>(inlen & 0xFF) << 56;
                     const uint8_t *r = end;
                     switch (inlen & 7) {
-                      case 7: last |= static_cast<uint64_t>(r[6]) << 48; // fall through
-                      case 6: last |= static_cast<uint64_t>(r[5]) << 40; // fall through
-                      case 5: last |= static_cast<uint64_t>(r[4]) << 32; // fall through
-                      case 4: last |= static_cast<uint64_t>(r[3]) << 24; // fall through
-                      case 3: last |= static_cast<uint64_t>(r[2]) << 16; // fall through
-                      case 2: last |= static_cast<uint64_t>(r[1]) << 8;  // fall through
-                      case 1: last |= static_cast<uint64_t>(r[0]);       // fall through
+                      case 7: last |= static_cast<uint64_t>(r[6]) << 48; [[fallthrough]];
+                      case 6: last |= static_cast<uint64_t>(r[5]) << 40; [[fallthrough]];
+                      case 5: last |= static_cast<uint64_t>(r[4]) << 32; [[fallthrough]];
+                      case 4: last |= static_cast<uint64_t>(r[3]) << 24; [[fallthrough]];
+                      case 3: last |= static_cast<uint64_t>(r[2]) << 16; [[fallthrough]];
+                      case 2: last |= static_cast<uint64_t>(r[1]) << 8;  [[fallthrough]];
+                      case 1: last |= static_cast<uint64_t>(r[0]); break;
                       default: break;
                     }
                     v3 ^= last; sipround(); sipround(); v0 ^= last;
