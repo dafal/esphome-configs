@@ -499,6 +499,9 @@ udp:
           }
 
           const std::string sender = payload.substr(4, sender_end - 4);
+          if (sender == "${device_name}") {
+            return;
+          }
           const std::string boot_str = payload.substr(sender_end + 1, boot_end - sender_end - 1);
           const std::string counter_str = payload.substr(boot_end + 1, counter_end - boot_end - 1);
           const std::string cipher_hex = payload.substr(counter_end + 1);
