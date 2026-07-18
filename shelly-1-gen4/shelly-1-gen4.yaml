@@ -684,10 +684,12 @@ binary_sensor:
     entity_category: diagnostic
     platform: template
     lambda: |-
-      // Use global for latch state instead of self-reference
-      // Check if already latched OR temperature exceeds threshold
+      // Latch at the threshold and release only below the hysteresis band.
       if (id(temperature).state >= id(overheat_threshold).state) {
         id(overtemp_latched) = true;
+      } else if (id(temperature).state <
+                 (id(overheat_threshold).state - id(temp_hysteresis).state)) {
+        id(overtemp_latched) = false;
       }
       return id(overtemp_latched);
     on_press:
