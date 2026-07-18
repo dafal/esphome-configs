@@ -163,8 +163,8 @@ esphome:
             ESP_LOGW("signal_bus", "Signal bus encryption key is empty; signal bus send/receive is disabled");
           }
 
-          auto saved_ble = id(ble_scan_mode).current_option();
-          ESP_LOGI("boot", "BLE restore scheduled: %s", saved_ble);
+          std::string saved_ble = id(ble_scan_mode).current_option();
+          ESP_LOGI("boot", "BLE restore scheduled: %s", saved_ble.c_str());
       - delay: 1s
       - script.execute: restore_ble_mode
 

@@ -86,8 +86,8 @@ esphome:
             id(pulse_counter_sensor).publish_state(id(pulse_counter));
           }
 
-          auto saved_ble = id(ble_scan_mode).current_option();
-          ESP_LOGI("boot", "BLE restore scheduled: %s", saved_ble);
+          std::string saved_ble = id(ble_scan_mode).current_option();
+          ESP_LOGI("boot", "BLE restore scheduled: %s", saved_ble.c_str());
       - delay: 1s
       - script.execute: restore_ble_mode
 
