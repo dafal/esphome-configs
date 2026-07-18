@@ -69,7 +69,7 @@ substitutions:
   signal_relay_addresses: ""
 
   # Switch press/release events.
-  # Used only in Edge (Toggle) and Follow modes.
+  # Press is used in Edge (Toggle) and Follow modes; release only in Follow.
   # Leaving an address empty disables only that event.
   signal_switch_press_address: ""
   signal_switch_press_action: "on"
