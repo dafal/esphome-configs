@@ -437,7 +437,7 @@ switch:
     id: relay
     name: "Relay"
     device_class: outlet
-    restore_mode: RESTORE_DEFAULT_OFF
+    restore_mode: DISABLED
     lambda: |-
       // Return current relay output state (tracked via global)
       return id(relay_last_state);

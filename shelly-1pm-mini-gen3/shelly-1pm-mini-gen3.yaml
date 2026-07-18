@@ -509,7 +509,7 @@ switch:
     id: relay
     name: "Relay"
     device_class: outlet
-    restore_mode: RESTORE_DEFAULT_OFF
+    restore_mode: DISABLED
     lambda: |-
       return id(relay_last_state);
     turn_on_action:
