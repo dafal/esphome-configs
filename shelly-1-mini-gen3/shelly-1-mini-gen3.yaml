@@ -258,6 +258,8 @@ mdns:
 #   - The relay command body is encrypted before UDP transmission.
 #   - Integrity is checked with a truncated SipHash MAC stored inside the
 #     encrypted block.
+#   - The MAC is truncated to 32 bits. Signal bus is intended for non-critical
+#     control on a trusted LAN, not for security-critical or hostile-network use.
 #   - Replay protection is tracked per sender using (boot_id, counter).
 #   - The relay remembers up to 8 senders in RAM.
 #
