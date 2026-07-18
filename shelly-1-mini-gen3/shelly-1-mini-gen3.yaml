@@ -466,15 +466,12 @@ udp:
               decoded[i * 4 + 3] = (words[i] >> 24) & 0xFF;
             }
             // Layout: [4-byte length][message][4-byte nonce][4-byte MAC]
-            if (decoded.size() < 12) {
-              return false;
-            }
             uint32_t length = static_cast<uint32_t>(decoded[0]) |
                               (static_cast<uint32_t>(decoded[1]) << 8) |
                               (static_cast<uint32_t>(decoded[2]) << 16) |
                               (static_cast<uint32_t>(decoded[3]) << 24);
             // Need: 4 (length field) + length (message) + 4 (nonce) + 4 (mac) <= decoded.size()
-            if (length + 12 > decoded.size()) {
+            if (decoded.size() < 12 || length > decoded.size() - 12) {
               return false;
             }
             // Verify MAC: covers [length field + message + nonce] (everything except MAC bytes)
